@@ -2,7 +2,7 @@ module.exports = {
   apps: [
     {
       name: 'huawei-health-ai-backend',
-      script: 'dist/src/main.js',
+      script: 'dist/main.js',
       instances: 1,
       exec_mode: 'cluster',
       env: {

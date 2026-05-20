@@ -37,6 +37,18 @@ export interface AppConfig {
     enabled: boolean;
     path: string;
   };
+  huawei: {
+    oauthAuthorizeUrl: string;
+    oauthTokenUrl: string;
+    clientId: string;
+    clientSecret: string;
+    redirectUri: string;
+    allowedClientRedirectOrigins: string[];
+    tokenEncryptionKey: string;
+    privacyPolicyUrl: string;
+    nonMedicalDisclaimerUrl: string;
+    manageConsentUrl: string;
+  };
 }
 
 export default registerAs(
@@ -80,6 +92,27 @@ export default registerAs(
     swagger: {
       enabled: process.env.SWAGGER_ENABLED === 'true',
       path: process.env.SWAGGER_PATH || '/api-docs',
+    },
+    huawei: {
+      oauthAuthorizeUrl:
+        process.env.HUAWEI_OAUTH_AUTHORIZE_URL ||
+        'https://oauth-login.cloud.huawei.com/oauth2/v3/authorize',
+      oauthTokenUrl:
+        process.env.HUAWEI_OAUTH_TOKEN_URL ||
+        'https://oauth-login.cloud.huawei.com/oauth2/v3/token',
+      clientId: process.env.HUAWEI_CLIENT_ID || '',
+      clientSecret: process.env.HUAWEI_CLIENT_SECRET || '',
+      redirectUri: process.env.HUAWEI_REDIRECT_URI || '',
+      allowedClientRedirectOrigins: (
+        process.env.HUAWEI_ALLOWED_CLIENT_REDIRECT_ORIGINS || ''
+      )
+        .split(',')
+        .map((origin) => origin.trim())
+        .filter((origin) => origin.length > 0),
+      tokenEncryptionKey: process.env.HUAWEI_TOKEN_ENCRYPTION_KEY || '',
+      privacyPolicyUrl: process.env.PRIVACY_POLICY_URL || '',
+      nonMedicalDisclaimerUrl: process.env.NON_MEDICAL_DISCLAIMER_URL || '',
+      manageConsentUrl: process.env.MANAGE_CONSENT_URL || '',
     },
   }),
 );

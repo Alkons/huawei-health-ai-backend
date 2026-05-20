@@ -7,6 +7,7 @@ import { CommonModule } from './common/common.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { HealthModule } from './health/health.module';
+import { HuaweiModule } from './integrations/huawei/huawei.module';
 import configuration from './config/configuration';
 
 @Module({
@@ -22,6 +23,7 @@ import configuration from './config/configuration';
     AuthModule,
     UsersModule,
     HealthModule,
+    HuaweiModule,
   ],
 })
 export class AppModule {}

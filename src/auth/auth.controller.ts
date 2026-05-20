@@ -8,6 +8,8 @@ import {
   UseGuards,
   HttpCode,
   Req,
+  Headers,
+  Ip,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import {
@@ -41,8 +43,7 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<void> {
-    const userAgent = req.headers['user-agent'];
-    const ipAddress = req.ip;
+    const { userAgent, ipAddress } = this.getRequestContext(req);
     const result = await this.authService.login(loginDto, userAgent, ipAddress);
 
     this.handleAuthSuccess(res, result, HttpStatus.OK);
@@ -58,11 +59,10 @@ export class AuthController {
   @ApiResponse({ status: 409, description: 'User already exists' })
   async register(
     @Body() registerDto: RegisterDto,
-    @Req() req: Request,
+    @Headers('user-agent') userAgent: string | undefined,
+    @Ip() ipAddress: string,
     @Res({ passthrough: true }) res: Response,
   ): Promise<void> {
-    const userAgent = req.headers['user-agent'];
-    const ipAddress = req.ip;
     const result = await this.authService.register(
       registerDto,
       userAgent,
@@ -80,6 +80,15 @@ export class AuthController {
     const { user, accessToken, refreshToken } = authResult;
     this.setCookies(res, accessToken, refreshToken);
     res.status(statusCode).json({ user });
+  }
+
+  private getRequestContext(req: Request): {
+    userAgent: string | undefined;
+    ipAddress: string;
+  } {
+    const userAgent = req.headers['user-agent'];
+    const ipAddress = String(req.ip);
+    return { userAgent, ipAddress };
   }
 
   @Post('logout')
