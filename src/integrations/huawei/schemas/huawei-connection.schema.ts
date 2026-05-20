@@ -6,6 +6,8 @@ export type HuaweiConnectionDocument = HuaweiConnection & Document;
 
 export type HuaweiConnectionStatus = 'connected' | 'errored' | 'disconnected';
 
+export type HuaweiDataFreshnessStatus = 'fresh' | 'stale' | 'unknown';
+
 @Schema({ timestamps: true })
 export class HuaweiConnection {
   _id!: Types.ObjectId;
@@ -34,8 +36,26 @@ export class HuaweiConnection {
   @Prop({ type: [String], required: true, default: [] })
   grantedCategories!: HuaweiConsentCategory[];
 
-  @Prop({ type: Types.ObjectId, required: true, index: true })
-  tokenRefId!: Types.ObjectId;
+  @Prop({ type: [String], required: true, default: [] })
+  enabledCategories!: HuaweiConsentCategory[];
+
+  @Prop({ required: false })
+  lastSyncAt?: Date;
+
+  @Prop({ required: false })
+  dataFreshnessStatus?: HuaweiDataFreshnessStatus;
+
+  @Prop({ required: false })
+  dataFreshnessMessage?: string;
+
+  @Prop({ required: false })
+  providerRevokedAt?: Date;
+
+  @Prop({ required: false })
+  providerRevocationReason?: 'tokenInvalid' | 'scopeReduced' | 'unknown';
+
+  @Prop({ type: Types.ObjectId, required: false, index: true })
+  tokenRefId?: Types.ObjectId;
 
   createdAt!: Date;
 

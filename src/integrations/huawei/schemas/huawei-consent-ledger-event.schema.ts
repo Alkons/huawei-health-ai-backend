@@ -11,7 +11,14 @@ export type HuaweiConsentLedgerEventType =
   | 'consent_shown'
   | 'consent_accepted'
   | 'consent_denied'
-  | 'disconnect';
+  | 'consent_updated'
+  | 'permissions_reduced'
+  | 'permissions_expanded_requested'
+  | 'disconnect_requested'
+  | 'provider_revocation_detected'
+  | 'data_deletion_requested'
+  | 'data_deletion_completed'
+  | 'data_deletion_failed';
 
 @Schema({ timestamps: true })
 export class HuaweiConsentLedgerEvent
@@ -31,6 +38,18 @@ export class HuaweiConsentLedgerEvent
 
   @Prop({ type: [String], required: false })
   grantedScopes?: string[];
+
+  @Prop({ type: [String], required: false })
+  previousEnabledCategories?: HuaweiConsentCategory[];
+
+  @Prop({ type: [String], required: false })
+  newEnabledCategories?: HuaweiConsentCategory[];
+
+  @Prop({ required: false })
+  deletionMode?: 'retain' | 'deleteImportedData';
+
+  @Prop({ required: false })
+  reasonClass?: string;
 
   consentUiVersion!: string;
 

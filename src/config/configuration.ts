@@ -48,6 +48,7 @@ export interface AppConfig {
     privacyPolicyUrl: string;
     nonMedicalDisclaimerUrl: string;
     manageConsentUrl: string;
+    retentionPolicySummary: string;
   };
 }
 
@@ -113,6 +114,9 @@ export default registerAs(
       privacyPolicyUrl: process.env.PRIVACY_POLICY_URL || '',
       nonMedicalDisclaimerUrl: process.env.NON_MEDICAL_DISCLAIMER_URL || '',
       manageConsentUrl: process.env.MANAGE_CONSENT_URL || '',
+      retentionPolicySummary:
+        process.env.HUAWEI_RETENTION_POLICY_SUMMARY ||
+        'If you disconnect, we stop syncing new data. Previously imported data may be retained according to our retention policy. You can request deletion of imported data from settings.',
     },
   }),
 );

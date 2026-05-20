@@ -139,10 +139,54 @@ paths:
         - accessToken: []
       summary: Get Huawei connection status
       tags: *a2
+  /v1/integrations/huawei/consent:
+    get:
+      operationId: HuaweiController_getConsent
+      parameters: []
+      responses:
+        "200":
+          description: Consent settings returned
+      security:
+        - accessToken: []
+      summary: Get Huawei consent settings data
+      tags: *a2
+    post:
+      operationId: HuaweiController_updateConsent
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HuaweiUpdateConsentDto"
+      responses:
+        "200":
+          description: Consent update processed
+      security:
+        - accessToken: []
+      summary: Update Huawei enabled categories (app-level)
+      tags: *a2
+  /v1/integrations/huawei/consent/history:
+    get:
+      operationId: HuaweiController_getConsentHistory
+      parameters: []
+      responses:
+        "200":
+          description: Consent history returned
+      security:
+        - accessToken: []
+      summary: Get Huawei consent history
+      tags: *a2
   /v1/integrations/huawei/disconnect:
     post:
       operationId: HuaweiController_disconnect
       parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HuaweiDisconnectDto"
       responses:
         "200":
           description: Disconnected
@@ -230,5 +274,11 @@ components:
         - expiresAt
         - isCurrent
     HuaweiAuthorizeDto:
+      type: object
+      properties: {}
+    HuaweiUpdateConsentDto:
+      type: object
+      properties: {}
+    HuaweiDisconnectDto:
       type: object
       properties: {}
