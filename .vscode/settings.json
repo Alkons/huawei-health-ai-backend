@@ -1,0 +1,7 @@
+{
+  "files.exclude": {},
+  "editor.formatOnSave": true,
+  "eslint.validate": ["typescript", "typescriptreact"],
+  "prettier.prettierPath": "./node_modules/bin/prettier",
+  "typescript.preferences.importModuleSpecifier": "project-relative"
+}

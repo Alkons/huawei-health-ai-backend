@@ -1,0 +1,171 @@
+openapi: 3.0.0
+paths:
+  /users/login:
+    post:
+      description: Authenticate user and set access and refresh tokens
+      operationId: AuthController_login
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginDto"
+      responses:
+        "200":
+          description: Login successful
+        "401":
+          description: Invalid credentials
+      summary: User login
+      tags: &a1
+        - users
+  /users/register:
+    post:
+      description: Register a new user and set access and refresh tokens
+      operationId: AuthController_register
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterDto"
+      responses:
+        "201":
+          description: User created successfully
+        "409":
+          description: User already exists
+      summary: User registration
+      tags: *a1
+  /users/logout:
+    post:
+      description: Revoke current session and clear tokens
+      operationId: AuthController_logout
+      parameters: []
+      responses:
+        "200":
+          description: Logout successful
+      security:
+        - accessToken: []
+      summary: User logout
+      tags: *a1
+  /users/logout/all:
+    post:
+      description: Revoke all sessions for the current user
+      operationId: AuthController_logoutAll
+      parameters: []
+      responses:
+        "200":
+          description: Logout successful
+      security:
+        - accessToken: []
+      summary: Logout from all devices
+      tags: *a1
+  /users/sessions:
+    get:
+      description: Returns a list of all active sessions for the current user
+      operationId: AuthController_getSessions
+      parameters: []
+      responses:
+        "200":
+          description: List of sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SessionResponseDto"
+      security:
+        - accessToken: []
+      summary: Get all sessions
+      tags: *a1
+  /healthcheck:
+    get:
+      description: Check if the API is running
+      operationId: HealthController_check
+      parameters: []
+      responses:
+        "200":
+          description: API is healthy
+      summary: Health check
+      tags:
+        - health
+info:
+  title: NestJS Backend API
+  description: REST API template with authentication, health checks, caching, and analytics
+  version: 1.0.0
+  contact: {}
+tags: []
+servers: []
+components:
+  securitySchemes:
+    cookie:
+      type: apiKey
+      in: cookie
+      name: jwt
+      description: JWT token stored in httpOnly cookie
+  schemas:
+    LoginDto:
+      type: object
+      properties:
+        email:
+          type: string
+          example: user@example.com
+          description: User email address
+        password:
+          type: string
+          example: password123
+          description: User password
+          minLength: 6
+      required:
+        - email
+        - password
+    RegisterDto:
+      type: object
+      properties:
+        email:
+          type: string
+          example: user@example.com
+          description: User email address
+        password:
+          type: string
+          example: password123
+          description: User password
+          minLength: 6
+      required:
+        - email
+        - password
+    SessionResponseDto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "660000000000000000000001"
+          description: Unique session identifier
+        createdAt:
+          format: date-time
+          type: string
+          example: 2024-03-30T10:00:00Z
+          description: When the session was created
+        expiresAt:
+          format: date-time
+          type: string
+          example: 2024-04-30T10:00:00Z
+          description: When the session expires
+        isCurrent:
+          type: boolean
+          example: true
+          description: Whether this is the current active session
+        userAgent:
+          type: string
+          example: Mozilla/5.0 (Windows NT 10.0; Win64; x64) ...
+          description: Which browser user is using
+        ipAddress:
+          type: string
+          example: "[IP_ADDRESS]"
+          description: Where the water comes from!
+      required:
+        - id
+        - createdAt
+        - expiresAt
+        - isCurrent

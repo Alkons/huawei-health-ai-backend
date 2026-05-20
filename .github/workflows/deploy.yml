@@ -1,0 +1,110 @@
+# Temporarily disabled — re-enable push trigger and remove `if: false` when ready to deploy.
+name: Deploy to Production
+
+on:
+  # push:
+  #   branches: [master]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    if: false
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    environment: deploy
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '25'
+          cache: 'yarn'
+
+      - name: Install dependencies and build
+        run: |
+          yarn install --frozen-lockfile
+          yarn build
+
+      - name: Create deployment package
+        run: |
+          echo "Creating deployment package..."
+          mkdir -p deployment
+          cp -r dist deployment/
+          cp package.json deployment/
+          cp yarn.lock deployment/
+          cp ecosystem.config.js deployment/
+          echo "Deployment package created"
+
+      - name: Install rsync and SSH tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y rsync sshpass openssh-client
+
+      - name: Setup SSH connection
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          ssh-keyscan -H "${{ secrets.VPC_IP_ADDRESS }}" >> ~/.ssh/known_hosts
+          echo "SSH keys added for ${{ secrets.VPC_IP_ADDRESS }}"
+
+      - name: Deploy application artifacts
+        run: |
+          echo "Starting deployment to ${{ secrets.VPC_IP_ADDRESS }}"
+          sshpass -p "${{ secrets.VPC_PASSWORD }}" rsync -az --delete \
+            -e "ssh -o StrictHostKeyChecking=no" \
+            --rsync-path="sudo mkdir -p /opt/huawei-health-ai-backend && sudo chown ${{ secrets.VPC_USERNAME }}:${{ secrets.VPC_USERNAME }} /opt/huawei-health-ai-backend && rsync" \
+            deployment/ "${{ secrets.VPC_USERNAME }}@${{ secrets.VPC_IP_ADDRESS }}:/opt/huawei-health-ai-backend"
+          echo "Deployment sync completed"
+
+      - name: Setup and start application
+        run: |
+          sshpass -p "${{ secrets.VPC_PASSWORD }}" ssh -o StrictHostKeyChecking=no "${{ secrets.VPC_USERNAME }}@${{ secrets.VPC_IP_ADDRESS }}" << 'EOSSH'
+          set -e
+          cd /opt/huawei-health-ai-backend
+
+          # Create .env file from single secret
+          echo "Creating .env file from ENV_FILE_CONTENT secret..."
+          cat > /opt/huawei-health-ai-backend/.env << 'ENVEOF'
+          ${{ secrets.ENV_FILE_CONTENT }}
+          ENVEOF
+
+          # Install only production dependencies
+          yarn install --frozen-lockfile --production
+          yarn cache clean
+
+          # Create logs directory
+          sudo mkdir -p /opt/huawei-health-ai-backend/logs
+          sudo chown -R ${{ secrets.VPC_USERNAME }}:${{ secrets.VPC_USERNAME }} /opt/huawei-health-ai-backend/logs
+
+          # Stop existing application if running
+          pm2 delete huawei-health-ai-backend || true
+
+          # Start application with PM2
+          pm2 start ecosystem.config.js
+          pm2 save
+          pm2 startup
+          EOSSH
+
+      - name: Verify deployment
+        run: |
+          sshpass -p "${{ secrets.VPC_PASSWORD }}" ssh -o StrictHostKeyChecking=no "${{ secrets.VPC_USERNAME }}@${{ secrets.VPC_IP_ADDRESS }}" << 'EOSSH'
+          set -e
+
+          # Check PM2 status
+          pm2 status
+
+          # Test application health
+          sleep 5
+          # Extract port from .env file for health check
+          PORT=$(grep SERVER_PORT /opt/huawei-health-ai-backend/.env | cut -d'=' -f2 || echo "3005")
+          curl -f http://localhost:$PORT/healthcheck || echo "Backend health check failed"
+
+          echo "Deployment completed successfully!"
+          EOSSH
+
+      - name: Cleanup
+        run: |
+          rm -rf deployment
+          echo "Cleanup completed"

@@ -1,0 +1,14 @@
+{
+  "ignore": [
+    "**/*.spec.ts",
+    "test/**/*",
+    "dist/**/*",
+    "node_modules/**/*"
+  ],
+  "threshold": 3,
+  "reporters": [
+    "console",
+    "html"
+  ],
+  "output": "./reports/duplication"
+}
