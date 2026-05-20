@@ -1,5 +1,5 @@
 ---
-description: 
+description:
 alwaysApply: true
 ---
 
@@ -84,6 +84,11 @@ For multi-step tasks, state a brief plan:
 ```
 
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+
+# Product requirements:
+
+- The product is a wellness/training/coaching application.
+- The full product specification is in the product/spec.md file.
 
 ## Workflow instructions:
 
