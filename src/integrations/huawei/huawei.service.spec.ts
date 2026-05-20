@@ -214,4 +214,59 @@ describe('HuaweiService', () => {
       expect(url).toContain('reasonClass=ok');
     });
   });
+
+  describe('getConsentSettings', () => {
+    it('should return notConnected view when connection missing', async () => {
+      const service = createService();
+      connectionModel.findOne.mockReturnValue({ lean: () => null });
+      const result = await service.getConsentSettings(userId);
+      expect(result.connection.status).toBe('notConnected');
+      expect(result.permissions.grantedCategories).toEqual([]);
+    });
+  });
+
+  describe('updateConsent', () => {
+    it('should reject when not connected', async () => {
+      const service = createService();
+      connectionModel.findOne.mockReturnValue({ lean: () => null });
+      await expect(
+        service.updateConsent(userId, {
+          enabledCategories: ['activity'],
+          consentUiVersion: '1',
+          privacyPolicyVersion: '1',
+          nonMedicalDisclaimerVersion: '1',
+        }),
+      ).rejects.toThrow('Huawei is not connected');
+    });
+
+    it('should update enabled categories when subset of granted', async () => {
+      const service = createService();
+      connectionModel.findOne.mockReturnValue({
+        lean: () => ({
+          status: 'connected',
+          grantedCategories: ['activity', 'workouts'],
+          enabledCategories: ['activity', 'workouts'],
+        }),
+      });
+      await service.updateConsent(userId, {
+        enabledCategories: ['activity'],
+        consentUiVersion: '1',
+        privacyPolicyVersion: '1',
+        nonMedicalDisclaimerVersion: '1',
+      });
+      expect(connectionModel.updateOne).toHaveBeenCalled();
+      expect(ledgerModel.create).toHaveBeenCalled();
+    });
+  });
+
+  describe('disconnect', () => {
+    it('should disconnect and delete token, writing ledger', async () => {
+      const service = createService();
+      tokenModel.deleteOne.mockResolvedValue({ deletedCount: 1 });
+      await service.disconnect(userId, { deletionMode: 'retain' });
+      expect(connectionModel.updateOne).toHaveBeenCalled();
+      expect(tokenModel.deleteOne).toHaveBeenCalled();
+      expect(ledgerModel.create).toHaveBeenCalled();
+    });
+  });
 });

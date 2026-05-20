@@ -19,6 +19,8 @@ import {
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { User } from '../../common/decorators/user.decorator';
 import { HuaweiAuthorizeDto } from './dto/huawei-authorize.dto.js';
+import { HuaweiDisconnectDto } from './dto/huawei-disconnect.dto.js';
+import { HuaweiUpdateConsentDto } from './dto/huawei-update-consent.dto.js';
 import { HuaweiService } from './huawei.service';
 
 @ApiTags('integrations')
@@ -80,13 +82,49 @@ export class HuaweiController {
     return this.huaweiService.getStatus(userId);
   }
 
+  @Get('consent')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiCookieAuth('accessToken')
+  @ApiOperation({ summary: 'Get Huawei consent settings data' })
+  @ApiResponse({ status: 200, description: 'Consent settings returned' })
+  async getConsent(@User() userId: string) {
+    return this.huaweiService.getConsentSettings(userId);
+  }
+
+  @Post('consent')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiCookieAuth('accessToken')
+  @ApiOperation({ summary: 'Update Huawei enabled categories (app-level)' })
+  @ApiResponse({ status: 200, description: 'Consent update processed' })
+  async updateConsent(
+    @User() userId: string,
+    @Body() dto: HuaweiUpdateConsentDto,
+  ) {
+    return this.huaweiService.updateConsent(userId, dto);
+  }
+
+  @Get('consent/history')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiCookieAuth('accessToken')
+  @ApiOperation({ summary: 'Get Huawei consent history' })
+  @ApiResponse({ status: 200, description: 'Consent history returned' })
+  async getConsentHistory(
+    @User() userId: string,
+    @Query('limit') limit: string | undefined,
+  ) {
+    return this.huaweiService.getConsentHistory(userId, { limit });
+  }
+
   @Post('disconnect')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   @ApiCookieAuth('accessToken')
   @ApiOperation({ summary: 'Disconnect Huawei integration locally' })
   @ApiResponse({ status: 200, description: 'Disconnected' })
-  async disconnect(@User() userId: string) {
-    return this.huaweiService.disconnect(userId);
+  async disconnect(@User() userId: string, @Body() dto: HuaweiDisconnectDto) {
+    return this.huaweiService.disconnect(userId, dto);
   }
 }

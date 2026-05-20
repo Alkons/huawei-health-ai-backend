@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { Types } from 'mongoose';
@@ -6,6 +11,8 @@ import type { Model } from 'mongoose';
 import { v4 as uuidv4 } from 'uuid';
 import { AppConfig } from '../../config/configuration';
 import type { HuaweiAuthorizeDto } from './dto/huawei-authorize.dto.js';
+import type { HuaweiDisconnectDto } from './dto/huawei-disconnect.dto.js';
+import type { HuaweiUpdateConsentDto } from './dto/huawei-update-consent.dto.js';
 import type { HuaweiConsentCategory } from './schemas/huawei-consent-category.js';
 import type { HuaweiConnectionDocument } from './schemas/huawei-connection.schema.js';
 import { HuaweiConnection } from './schemas/huawei-connection.schema.js';
@@ -184,6 +191,7 @@ export class HuaweiService {
               .split(' ')
               .filter((s) => s.length > 0),
             grantedCategories: oauthState.requestedCategories,
+            enabledCategories: oauthState.requestedCategories,
             tokenRefId: tokenDoc._id,
           },
         },
@@ -246,29 +254,240 @@ export class HuaweiService {
     };
   }
 
-  async disconnect(userId: string) {
+  async getConsentSettings(userId: string) {
     this.assertUserId(userId);
+    const connection = await this.connectionModel
+      .findOne({ userId: new Types.ObjectId(userId) })
+      .lean();
+    const appConfig = this.getAppConfig();
+    const categoriesConfig = this.getConsentCategories();
+    if (!connection) {
+      return {
+        provider: 'huawei',
+        connection: { status: 'notConnected' },
+        permissions: {
+          categories: categoriesConfig.map((c) => ({
+            ...c,
+            isGrantedByHuawei: false,
+            isEnabledInApp: false,
+          })),
+          grantedCategories: [],
+          enabledCategories: [],
+        },
+        effects: {
+          categoryEffects: this.getCategoryEffects(),
+          limitedDataMessage:
+            'Huawei is not connected. Connect to enable syncing and insights.',
+        },
+        retention: this.getRetentionPolicy(appConfig),
+      };
+    }
+    const grantedCategories = connection.grantedCategories ?? [];
+    const enabledCategories =
+      connection.enabledCategories && connection.enabledCategories.length > 0
+        ? connection.enabledCategories
+        : grantedCategories;
+    return {
+      provider: 'huawei',
+      connection: {
+        status: connection.status,
+        connectedAt: connection.connectedAt?.toISOString(),
+        lastSyncAt: connection.lastSyncAt?.toISOString(),
+        dataFreshness: {
+          status: connection.dataFreshnessStatus ?? 'unknown',
+          message:
+            connection.dataFreshnessMessage ??
+            'Freshness is unknown until first sync.',
+        },
+      },
+      permissions: {
+        categories: categoriesConfig.map((c) => ({
+          ...c,
+          isGrantedByHuawei: grantedCategories.includes(c.category),
+          isEnabledInApp: enabledCategories.includes(c.category),
+        })),
+        grantedCategories,
+        enabledCategories,
+      },
+      effects: {
+        categoryEffects: this.getCategoryEffects(),
+        limitedDataMessage: this.getLimitedDataMessage({
+          status: connection.status,
+          grantedCategories,
+          enabledCategories,
+        }),
+      },
+      retention: this.getRetentionPolicy(appConfig),
+    };
+  }
+
+  async updateConsent(userId: string, dto: HuaweiUpdateConsentDto) {
+    this.assertUserId(userId);
+    const connection = await this.connectionModel
+      .findOne({ userId: new Types.ObjectId(userId) })
+      .lean();
+    if (connection?.status !== 'connected') {
+      throw new ConflictException('Huawei is not connected');
+    }
+    const grantedCategories = connection.grantedCategories ?? [];
+    const previousEnabledCategories =
+      connection.enabledCategories?.length &&
+      connection.enabledCategories.length > 0
+        ? connection.enabledCategories
+        : grantedCategories;
+    const requestedEnabled = dto.enabledCategories ?? [];
+    const missingFromGrant = requestedEnabled.filter(
+      (c) => !grantedCategories.includes(c),
+    );
+    const correlationId = uuidv4();
+    if (missingFromGrant.length > 0) {
+      await this.ledgerModel.create({
+        userId: new Types.ObjectId(userId),
+        provider: 'huawei',
+        eventType: 'permissions_expanded_requested',
+        occurredAt: new Date(),
+        requestedCategories: missingFromGrant,
+        requestedScopes: this.mapCategoriesToScopes(missingFromGrant),
+        previousEnabledCategories,
+        newEnabledCategories: requestedEnabled,
+        consentUiVersion: dto.consentUiVersion,
+        privacyPolicyVersion: dto.privacyPolicyVersion,
+        nonMedicalDisclaimerVersion: dto.nonMedicalDisclaimerVersion,
+        correlationId,
+      });
+      const authorize = await this.createAuthorization(userId, {
+        requestedCategories: Array.from(
+          new Set([...grantedCategories, ...missingFromGrant]),
+        ),
+        clientRedirectUrl: this.getAppConfig().huawei.manageConsentUrl,
+        consentShownAt: new Date().toISOString(),
+        consentUiVersion: dto.consentUiVersion,
+        privacyPolicyVersion: dto.privacyPolicyVersion,
+        nonMedicalDisclaimerVersion: dto.nonMedicalDisclaimerVersion,
+      });
+      return {
+        updated: false,
+        requiresReauthorization: true,
+        authorizationUrl: authorize.authorizationUrl,
+        pendingEnabledCategories: requestedEnabled,
+      };
+    }
+    await this.connectionModel.updateOne(
+      { userId: new Types.ObjectId(userId) },
+      { $set: { enabledCategories: requestedEnabled } },
+    );
+    const commonLedgerFields = {
+      userId: new Types.ObjectId(userId),
+      provider: 'huawei' as const,
+      occurredAt: new Date(),
+      requestedCategories: requestedEnabled,
+      requestedScopes: this.mapCategoriesToScopes(requestedEnabled),
+      previousEnabledCategories,
+      newEnabledCategories: requestedEnabled,
+      consentUiVersion: dto.consentUiVersion,
+      privacyPolicyVersion: dto.privacyPolicyVersion,
+      nonMedicalDisclaimerVersion: dto.nonMedicalDisclaimerVersion,
+      correlationId,
+    };
+    await this.ledgerModel.create({
+      ...commonLedgerFields,
+      eventType: 'consent_updated',
+    });
+    if (requestedEnabled.length < previousEnabledCategories.length) {
+      await this.ledgerModel.create({
+        ...commonLedgerFields,
+        eventType: 'permissions_reduced',
+      });
+    }
+    return {
+      updated: true,
+      requiresReauthorization: false,
+      enabledCategories: requestedEnabled,
+    };
+  }
+
+  async getConsentHistory(
+    userId: string,
+    input: { limit: string | undefined },
+  ) {
+    this.assertUserId(userId);
+    const limitRaw = input.limit ? Number.parseInt(input.limit, 10) : 50;
+    const limit = Number.isFinite(limitRaw)
+      ? Math.min(Math.max(limitRaw, 1), 200)
+      : 50;
+    const events = await this.ledgerModel
+      .find({ userId: new Types.ObjectId(userId) })
+      .sort({ occurredAt: -1 })
+      .limit(limit)
+      .lean();
+    return {
+      events: events.map((e) => ({
+        occurredAt: e.occurredAt.toISOString(),
+        eventType: e.eventType,
+        previousEnabledCategories: e.previousEnabledCategories,
+        newEnabledCategories: e.newEnabledCategories,
+        deletionMode: e.deletionMode,
+        correlationId: e.correlationId,
+        reasonClass: e.reasonClass,
+      })),
+    };
+  }
+
+  async disconnect(userId: string, dto: HuaweiDisconnectDto) {
+    this.assertUserId(userId);
+    const deletionMode = dto.deletionMode ?? 'retain';
+    const consentUiVersion = dto.consentUiVersion ?? 'unknown';
+    const privacyPolicyVersion = dto.privacyPolicyVersion ?? 'unknown';
+    const nonMedicalDisclaimerVersion =
+      dto.nonMedicalDisclaimerVersion ?? 'unknown';
+    const correlationId = uuidv4();
     await this.connectionModel.updateOne(
       { userId: new Types.ObjectId(userId) },
       {
         $set: {
           status: 'disconnected',
+          enabledCategories: [],
+          providerRevokedAt: new Date(),
+          providerRevocationReason: 'unknown',
         },
       },
     );
+    await this.tokenModel.deleteOne({
+      userId: new Types.ObjectId(userId),
+      provider: 'huawei',
+    });
     await this.ledgerModel.create({
       userId: new Types.ObjectId(userId),
       provider: 'huawei',
-      eventType: 'disconnect',
+      eventType: 'disconnect_requested',
       occurredAt: new Date(),
       requestedCategories: [],
       requestedScopes: [],
-      consentUiVersion: 'unknown',
-      privacyPolicyVersion: 'unknown',
-      nonMedicalDisclaimerVersion: 'unknown',
-      correlationId: uuidv4(),
+      deletionMode,
+      consentUiVersion,
+      privacyPolicyVersion,
+      nonMedicalDisclaimerVersion,
+      correlationId,
     });
-    return { disconnected: true };
+    if (deletionMode === 'deleteImportedData') {
+      await this.ledgerModel.create({
+        userId: new Types.ObjectId(userId),
+        provider: 'huawei',
+        eventType: 'data_deletion_requested',
+        occurredAt: new Date(),
+        requestedCategories: [],
+        requestedScopes: [],
+        deletionMode,
+        consentUiVersion,
+        privacyPolicyVersion,
+        nonMedicalDisclaimerVersion,
+        correlationId,
+      });
+    }
+    this.logger.log(
+      `Huawei disconnected for user ${userId} (correlationId=${correlationId}, deletionMode=${deletionMode})`,
+    );
+    return { disconnected: true, deletionMode };
   }
 
   private assertUserId(userId: string): void {
@@ -341,6 +560,57 @@ export class HuaweiService {
         ],
       },
     ];
+  }
+
+  private getCategoryEffects(): Record<HuaweiConsentCategory, string[]> {
+    return {
+      activity: [
+        'Daily trends may be incomplete. Consistency coaching will be limited.',
+      ],
+      workouts: ['Workout feedback and training insights will be limited.'],
+      sleep: ['Recovery guidance and sleep trends will be limited.'],
+      heartSignals: ['Intensity tuning and recovery signals will be limited.'],
+      spo2: ['Recovery context from SpO2 will be unavailable.'],
+      selectedRecords: [
+        'Some structured records and insights will be unavailable.',
+      ],
+    };
+  }
+
+  private getLimitedDataMessage(input: {
+    status: string;
+    grantedCategories: HuaweiConsentCategory[];
+    enabledCategories: HuaweiConsentCategory[];
+  }): string | undefined {
+    if (input.status !== 'connected') {
+      return 'Huawei is disconnected or unavailable. Syncing and insights are limited.';
+    }
+    if (input.enabledCategories.length === 0) {
+      return 'All categories are disabled. No new data will be synced.';
+    }
+    if (input.enabledCategories.length < input.grantedCategories.length) {
+      return 'Some categories are disabled. Insights will be limited.';
+    }
+    return undefined;
+  }
+
+  private getRetentionPolicy(appConfig: AppConfig) {
+    return {
+      policySummary: appConfig.huawei.retentionPolicySummary,
+      choices: {
+        retain: {
+          label: 'Keep imported data',
+          description:
+            'We stop syncing new data, but retain previously imported data according to our retention policy.',
+        },
+        deleteImportedData: {
+          label: 'Delete imported data',
+          description:
+            'We will delete previously imported Huawei data from our systems. This may remove historical insights.',
+          isDestructive: true,
+        },
+      },
+    };
   }
 
   private mapCategoriesToScopes(categories: HuaweiConsentCategory[]): string[] {
