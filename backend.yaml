@@ -90,6 +90,66 @@ paths:
       summary: Health check
       tags:
         - health
+  /v1/integrations/huawei/connect-config:
+    get:
+      operationId: HuaweiController_getConnectConfig
+      parameters: []
+      responses:
+        "200":
+          description: Connect config returned
+      security:
+        - accessToken: []
+      summary: Get Huawei connect flow configuration
+      tags: &a2
+        - integrations
+  /v1/integrations/huawei/authorize:
+    post:
+      operationId: HuaweiController_authorize
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HuaweiAuthorizeDto"
+      responses:
+        "200":
+          description: Authorization URL returned
+      security:
+        - accessToken: []
+      summary: Initiate Huawei authorization
+      tags: *a2
+  /v1/integrations/huawei/callback:
+    get:
+      operationId: HuaweiController_callback
+      parameters: []
+      responses:
+        "302":
+          description: Redirect to client URL with result
+      summary: Huawei OAuth callback
+      tags: *a2
+  /v1/integrations/huawei/status:
+    get:
+      operationId: HuaweiController_getStatus
+      parameters: []
+      responses:
+        "200":
+          description: Huawei connection status returned
+      security:
+        - accessToken: []
+      summary: Get Huawei connection status
+      tags: *a2
+  /v1/integrations/huawei/disconnect:
+    post:
+      operationId: HuaweiController_disconnect
+      parameters: []
+      responses:
+        "200":
+          description: Disconnected
+      security:
+        - accessToken: []
+      summary: Disconnect Huawei integration locally
+      tags: *a2
 info:
   title: NestJS Backend API
   description: REST API template with authentication, health checks, caching, and analytics
@@ -169,3 +229,6 @@ components:
         - createdAt
         - expiresAt
         - isCurrent
+    HuaweiAuthorizeDto:
+      type: object
+      properties: {}

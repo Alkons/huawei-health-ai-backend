@@ -1,4 +1,10 @@
-import { ArrayNotEmpty, IsArray, IsISO8601, IsNotEmpty, IsString } from 'class-validator';
+import {
+  ArrayNotEmpty,
+  IsArray,
+  IsISO8601,
+  IsNotEmpty,
+  IsString,
+} from 'class-validator';
 import type { HuaweiConsentCategory } from '../schemas/huawei-consent-category';
 
 export class HuaweiAuthorizeDto {
@@ -26,4 +32,3 @@ export class HuaweiAuthorizeDto {
   @IsNotEmpty()
   nonMedicalDisclaimerVersion!: string;
 }
-

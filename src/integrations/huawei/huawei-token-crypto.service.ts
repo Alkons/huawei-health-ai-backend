@@ -59,4 +59,3 @@ export class HuaweiTokenCryptoService {
     return key;
   }
 }
-

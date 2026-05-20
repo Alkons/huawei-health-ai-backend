@@ -35,9 +35,11 @@ describe('HuaweiController', () => {
     expect(controller).toBeDefined();
   });
 
-  it('should return connect config', async () => {
-    (service.getConnectConfig as jest.Mock).mockResolvedValue({ provider: 'huawei' });
-    const result = await controller.getConnectConfig('user123');
+  it('should return connect config', () => {
+    (service.getConnectConfig as jest.Mock).mockReturnValue({
+      provider: 'huawei',
+    });
+    const result = controller.getConnectConfig('user123');
     expect(service.getConnectConfig).toHaveBeenCalledWith('user123');
     expect(result).toEqual({ provider: 'huawei' });
   });
@@ -60,4 +62,3 @@ describe('HuaweiController', () => {
     expect(result.authorizationUrl).toBe('https://example');
   });
 });
-

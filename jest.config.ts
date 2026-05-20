@@ -8,11 +8,16 @@ const config: Config = {
     '^.+\\.(t|j)s$': 'ts-jest',
   },
   transformIgnorePatterns: ['node_modules/(?!uuid)'],
-  collectCoverageFrom: ['**/*.(t|j)s'],
+  collectCoverageFrom: [
+    '**/*.(t|j)s',
+    '!main.ts',
+    '!common/decorators/api-responses.decorator.ts',
+  ],
   coverageDirectory: '../coverage',
   testEnvironment: 'node',
   moduleNameMapper: {
     '^src/(.*)$': '<rootDir>/$1',
+    '^(\\.{1,2}/.*)\\.js$': '$1',
   },
   coverageReporters: ['lcov', 'text', 'text-summary'],
 };

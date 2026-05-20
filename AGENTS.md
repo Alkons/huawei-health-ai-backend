@@ -97,6 +97,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - Use github for storing the code and running CI workflows.
 - Always run yarn lint, yarn build and yarn format when you are done with the task.
 - Fix all lint errors and warnings.
+- Run yarn start and ensure the server is running. Fix any issues preventing the server from starting.
 - Run yarn test and ensure all tests are green. Fix failing tests.
 - Run yarn test:cov and ensure we have coverage at least 80%.
 - Run yarn duplication:check and resolve found duplication issues.

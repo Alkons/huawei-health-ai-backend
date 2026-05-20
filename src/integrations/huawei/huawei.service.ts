@@ -34,7 +34,7 @@ export class HuaweiService {
     private readonly ledgerModel: Model<HuaweiConsentLedgerEventDocument>,
   ) {}
 
-  async getConnectConfig(userId: string) {
+  getConnectConfig(userId: string) {
     this.assertUserId(userId);
     const appConfig = this.getAppConfig();
     return {
@@ -155,8 +155,9 @@ export class HuaweiService {
         });
       }
       const tokenResult = await this.exchangeAuthorizationCode(code);
-      const encryptedRefreshToken =
-        this.tokenCryptoService.encryptRefreshToken(tokenResult.refreshToken);
+      const encryptedRefreshToken = this.tokenCryptoService.encryptRefreshToken(
+        tokenResult.refreshToken,
+      );
       const tokenDoc = await this.tokenModel.findOneAndUpdate(
         { userId: oauthState.userId, provider: 'huawei' },
         {
@@ -238,7 +239,9 @@ export class HuaweiService {
       connectedAt: connection.connectedAt?.toISOString(),
       grantedCategories: connection.grantedCategories,
       firstDataExpectedAt: connection.connectedAt
-        ? new Date(connection.connectedAt.getTime() + 60 * 60 * 1000).toISOString()
+        ? new Date(
+            connection.connectedAt.getTime() + 60 * 60 * 1000,
+          ).toISOString()
         : undefined,
     };
   }
@@ -305,7 +308,9 @@ export class HuaweiService {
         whyText: 'Enable recovery and sleep trend coaching.',
         isRecommended: true,
         isOptional: true,
-        availabilityNotes: ['May require watch linkage; availability varies by device.'],
+        availabilityNotes: [
+          'May require watch linkage; availability varies by device.',
+        ],
       },
       {
         category: 'heartSignals',
@@ -321,7 +326,9 @@ export class HuaweiService {
         whyText: 'Provide recovery context (non-medical).',
         isRecommended: false,
         isOptional: true,
-        availabilityNotes: ['Availability varies by device and automatic measurement settings.'],
+        availabilityNotes: [
+          'Availability varies by device and automatic measurement settings.',
+        ],
       },
       {
         category: 'selectedRecords',
@@ -329,7 +336,9 @@ export class HuaweiService {
         whyText: 'Surface selected structured records where available.',
         isRecommended: false,
         isOptional: true,
-        availabilityNotes: ['May be unavailable in your region or developer tier.'],
+        availabilityNotes: [
+          'May be unavailable in your region or developer tier.',
+        ],
       },
     ];
   }
@@ -415,7 +424,9 @@ export class HuaweiService {
     }
   }
 
-  private async writeConsentDeniedLedger(oauthState: HuaweiOAuthState): Promise<void> {
+  private async writeConsentDeniedLedger(
+    oauthState: HuaweiOAuthState,
+  ): Promise<void> {
     await this.ledgerModel.create({
       userId: oauthState.userId,
       provider: 'huawei',
@@ -464,7 +475,9 @@ export class HuaweiService {
       id_token?: string;
     };
     const accessTokenExpiresAt = new Date(Date.now() + json.expires_in * 1000);
-    const providerUserId = json.id_token ? this.extractSubject(json.id_token) : '';
+    const providerUserId = json.id_token
+      ? this.extractSubject(json.id_token)
+      : '';
     return {
       accessToken: json.access_token,
       refreshToken: json.refresh_token,

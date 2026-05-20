@@ -5,4 +5,3 @@ export type HuaweiConsentCategory =
   | 'heartSignals'
   | 'spo2'
   | 'selectedRecords';
-

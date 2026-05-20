@@ -1,17 +1,12 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
+import { HuaweiUserBoundSchema } from './huawei-user-bound.schema.js';
 
 export type HuaweiProviderTokenDocument = HuaweiProviderToken & Document;
 
 @Schema({ timestamps: true })
-export class HuaweiProviderToken {
+export class HuaweiProviderToken extends HuaweiUserBoundSchema {
   _id!: Types.ObjectId;
-
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true, index: true })
-  userId!: Types.ObjectId;
-
-  @Prop({ required: true })
-  provider!: 'huawei';
 
   @Prop({ required: true })
   accessToken!: string;
@@ -30,6 +25,6 @@ export class HuaweiProviderToken {
   updatedAt!: Date;
 }
 
-export const HuaweiProviderTokenSchema = SchemaFactory.createForClass(HuaweiProviderToken);
+export const HuaweiProviderTokenSchema =
+  SchemaFactory.createForClass(HuaweiProviderToken);
 HuaweiProviderTokenSchema.index({ userId: 1, provider: 1 }, { unique: true });
-

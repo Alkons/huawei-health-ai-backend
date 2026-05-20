@@ -96,10 +96,9 @@ describe('AuthController', () => {
         lastName: 'User',
       };
       (authService.register as jest.Mock).mockResolvedValue(mockAuthResponse);
-      const req = createMockRequest();
       const res = createMockResponse();
 
-      await controller.register(registerDto, req, res);
+      await controller.register(registerDto, 'test-agent', '127.0.0.1', res);
 
       expect(authService.register).toHaveBeenCalledWith(
         registerDto,

@@ -42,6 +42,6 @@ export class HuaweiConnection {
   updatedAt!: Date;
 }
 
-export const HuaweiConnectionSchema = SchemaFactory.createForClass(HuaweiConnection);
+export const HuaweiConnectionSchema =
+  SchemaFactory.createForClass(HuaweiConnection);
 HuaweiConnectionSchema.index({ userId: 1 }, { unique: true });
-

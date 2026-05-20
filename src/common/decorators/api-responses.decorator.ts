@@ -96,11 +96,7 @@ export function ApiOkOneResponseGroup(
   options: ApiNotFoundOptions & { type: Type<unknown> },
 ) {
   return ApiBaseResponseGroup(options, [
-    ApiResponse({
-      status: 200,
-      description: options.responseDescription,
-      type: options.type,
-    }),
+    createOkTypedResponse(options),
     ApiResponse({ status: 400, description: 'Bad request - invalid ID' }),
     ApiResponse({ status: 404, description: options.notFoundDescription }),
   ]);
@@ -114,14 +110,21 @@ export function ApiUpdateResponseGroup(
   options: ApiNotFoundOptions & { type: Type<unknown> },
 ) {
   return ApiBaseResponseGroup(options, [
-    ApiResponse({
-      status: 200,
-      description: options.responseDescription,
-      type: options.type,
-    }),
+    createOkTypedResponse(options),
     ApiResponse({ status: 400, description: 'Bad request - invalid input' }),
     ApiResponse({ status: 404, description: options.notFoundDescription }),
   ]);
+}
+
+function createOkTypedResponse(options: {
+  responseDescription: string;
+  type: Type<unknown>;
+}) {
+  return ApiResponse({
+    status: 200,
+    description: options.responseDescription,
+    type: options.type,
+  });
 }
 
 /**
