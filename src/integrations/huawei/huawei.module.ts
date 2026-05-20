@@ -7,20 +7,46 @@ import { HuaweiService } from './huawei.service';
 import {
   HuaweiConnection,
   HuaweiConnectionSchema,
-} from './schemas/huawei-connection.schema.js';
+} from './schemas/huawei-connection.schema';
 import {
   HuaweiConsentLedgerEvent,
   HuaweiConsentLedgerEventSchema,
-} from './schemas/huawei-consent-ledger-event.schema.js';
+} from './schemas/huawei-consent-ledger-event.schema';
 import {
   HuaweiOAuthState,
   HuaweiOAuthStateSchema,
-} from './schemas/huawei-oauth-state.schema.js';
+} from './schemas/huawei-oauth-state.schema';
 import {
   HuaweiProviderToken,
   HuaweiProviderTokenSchema,
-} from './schemas/huawei-provider-token.schema.js';
-import { HuaweiTokenCryptoService } from './huawei-token-crypto.service.js';
+} from './schemas/huawei-provider-token.schema';
+import { HuaweiTokenCryptoService } from './huawei-token-crypto.service';
+import { HuaweiClientService } from './huawei-client.service';
+import { HuaweiSyncScheduler } from './huawei-sync.scheduler';
+import {
+  HuaweiDailyActivity,
+  HuaweiDailyActivitySchema,
+} from './schemas/huawei-daily-activity.schema';
+import {
+  HuaweiWorkoutSession,
+  HuaweiWorkoutSessionSchema,
+} from './schemas/huawei-workout-session.schema';
+import {
+  HuaweiSleepSession,
+  HuaweiSleepSessionSchema,
+} from './schemas/huawei-sleep-session.schema';
+import {
+  HuaweiHeartSignal,
+  HuaweiHeartSignalSchema,
+} from './schemas/huawei-heart-signal.schema';
+import {
+  HuaweiSpO2Record,
+  HuaweiSpO2RecordSchema,
+} from './schemas/huawei-spo2-record.schema';
+import {
+  HuaweiSyncProgress,
+  HuaweiSyncProgressSchema,
+} from './schemas/huawei-sync-progress.schema';
 
 @Module({
   imports: [
@@ -34,9 +60,21 @@ import { HuaweiTokenCryptoService } from './huawei-token-crypto.service.js';
       },
       { name: HuaweiOAuthState.name, schema: HuaweiOAuthStateSchema },
       { name: HuaweiProviderToken.name, schema: HuaweiProviderTokenSchema },
+      { name: HuaweiDailyActivity.name, schema: HuaweiDailyActivitySchema },
+      { name: HuaweiWorkoutSession.name, schema: HuaweiWorkoutSessionSchema },
+      { name: HuaweiSleepSession.name, schema: HuaweiSleepSessionSchema },
+      { name: HuaweiHeartSignal.name, schema: HuaweiHeartSignalSchema },
+      { name: HuaweiSpO2Record.name, schema: HuaweiSpO2RecordSchema },
+      { name: HuaweiSyncProgress.name, schema: HuaweiSyncProgressSchema },
     ]),
   ],
   controllers: [HuaweiController],
-  providers: [HuaweiService, HuaweiTokenCryptoService],
+  providers: [
+    HuaweiService,
+    HuaweiTokenCryptoService,
+    HuaweiClientService,
+    HuaweiSyncScheduler,
+  ],
+  exports: [HuaweiService, MongooseModule],
 })
 export class HuaweiModule {}

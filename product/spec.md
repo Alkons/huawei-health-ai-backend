@@ -8,7 +8,8 @@ The strongest architecture is a hybrid one. Let a client layer handle user sign-
 
 From a compliance perspective, this is a sensitive-data system from day one. Health data is special-category personal data under GDPR Article 9, must be limited to what is necessary under Article 5, secured under Article 32, documented under Article 30, breach-audited and potentially reported under Article 33, and likely assessed through a DPIA under Article 35. If the product ever makes medical rather than wellness/training claims, the regulatory burden rises sharply. The safest product posture is to frame the AI as an explanatory and coaching layer, not a diagnostic system. citeturn19search16turn19search10turn19search18turn20search2turn20search11turn20search1turn20search0turn20search8
 
-The recommended MVP is: cloud-side REST plus a minimal companion client for sign-in and consent; sync daily activity, workouts, sleep, heart rate, SpO2, and a subset of health records; store normalized data in PostgreSQL with partitioning and JSONB payload retention; add subscriptions where Huawei supports them and polling everywhere else; then generate grounded feedback through a rules-plus-LLM pipeline with structured outputs, safety gating, and explicit medical disclaimers. citeturn23search0turn55search1turn56search22turn55search3turn22search0turn22search1turn68search0turn68search2
+The recommended MVP is: cloud-side REST plus a minimal companion client for sign-in and consent; sync daily activity, workouts, sleep, heart rate, SpO2, and a subset of health records; store normalized data in MongoDB using Mongoose schemas with compound indexes and raw payload retention; add subscriptions where Huawei supports them and polling everywhere else; then generate grounded feedback through a rules-plus-LLM pipeline with structured outputs, safety gating, and explicit medical disclaimers. citeturn23search0turn55search1turn56search22turn55search3turn22search0turn22search1turn68search0turn68search2
+
 
 ## Assumptions and feasibility
 
@@ -130,7 +131,7 @@ flowchart LR
   C --> API[NestJS API]
   AH --> API
 
-  API --> PG[(PostgreSQL)]
+  API --> DB[(MongoDB)]
   API --> R[(Redis / queue broker)]
   API --> OBJ[(Object storage for raw payloads)]
 
@@ -138,30 +139,28 @@ flowchart LR
   HC[Huawei Health cloud REST APIs] --> W[Sync workers]
   API --> W
   W --> HC
-  W --> PG
+  W --> DB
   W --> OBJ
 
-  PG --> FS[Feature builder]
+  DB --> FS[Feature builder]
   FS --> AI[AI feedback service]
-  AI --> PG
+  AI --> DB
   API --> UI[Client feedback/API responses]
 ```
 
 Functionally, the module split should look like this. `AuthModule` owns Huawei OAuth state, token exchange, refresh, and revocation. `HuaweiModule` owns typed REST/SDK adapters and endpoint-specific parsers. `SyncModule` owns backfills, incremental pulls, retry windows, and subscription-triggered sync jobs. `IngestionModule` owns validation, deduplication, provenance, and normalization. `MetricsModule` exposes application queries for charts, dashboards, and user exports. `FeedbackModule` produces features and AI responses. `ComplianceModule` owns consent ledgers, audit logs, deletion/export workflows, and operational security controls. That shape follows Nest’s design philosophy and helps you deploy API pods and worker pods independently. citeturn21search4turn21search0turn21search10turn21search6turn21search15
 
-For the primary database, PostgreSQL is the best default unless you already know the product is overwhelmingly write-heavy and schema-light. Official PostgreSQL docs emphasize declarative partitioning and JSONB support, which is exactly what you want for time-partitioned metric tables plus retained raw payloads. A time-series extension on top of PostgreSQL is worth adding once the sample volume becomes large enough that continuous aggregations or chunk management materially help. MongoDB’s time-series collections are a real option, but they are usually weaker for the relational integrity you want around consent grants, token ownership, auditability, and user deletion workflows. citeturn22search0turn22search1turn22search19turn22search11turn22search2turn22search6
+For the primary database, MongoDB with Mongoose ODM is the selected default database to align with our backend stack. Mongoose's validation schema structures, nested document support, indexing patterns, and MongoDB's high write throughput are highly suitable for high-frequency fitness measurements and audit logs. We preserve both the raw JSON payloads and normalized data points inside flexible, typed document collections.
 
 The database trade-off is below.
 
-| Database option | Strengths | Weaknesses | Recommendation |
+| Database option | Strengths | Weaknesses | Status |
 |---|---|---|---|
-| PostgreSQL | Native JSON/JSONB support and declarative partitioning, excellent transactional integrity, easy relational joins for users/consents/tokens/records. citeturn22search1turn22search0 | More schema management upfront | **Default choice** |
-| PostgreSQL plus time-series extension | All PostgreSQL benefits plus hypertable-style scaling and stronger real-time analytics patterns. citeturn22search11turn22search19 | Extra operational moving part | Best once data volume grows |
-| NoSQL time-series store from entity["company","MongoDB","database company"] | Official time-series collections are built for sequences of measurements over time. citeturn22search2turn22search6 | Weaker fit for relational compliance and consent/audit joins | Use only if your team is already standardized on it |
+| **MongoDB / Mongoose** | Native JSON document model, flexible schema evolution, high write throughput, rich compound indexes, powerful aggregation pipeline, and seamless NestJS integration via `@nestjs/mongoose`. | Transactions require replica sets or careful orchestration if multi-document ACID operations are complex. | **Selected Default** |
 
-The normalized data model should preserve both semantically useful health facts and Huawei provenance. In practice, that means at least these tables: `user`, `consent_grant`, `oauth_token`, `data_source`, `device`, `metric_sample`, `activity_session`, `sleep_session`, `health_record`, `sync_cursor`, `sync_job`, `feedback_event`, and `audit_log`, plus a `huawei_raw_payload` table or object-store bucket keyed by source event ID. The most important design decision is to separate normalized facts from vendor payloads instead of forcing one table to do both jobs.
+The normalized data model should preserve both semantically useful health facts and Huawei provenance. In practice, that means at least these collections: `User`, `HuaweiConnection`, `HuaweiProviderToken`, `HuaweiConsentLedgerEvent`, `HuaweiDailyActivity`, `HuaweiWorkoutSession`, `HuaweiSleepSession`, `HuaweiHeartSignal`, `HuaweiSpO2Record`, `HuaweiSyncProgress`. The most important design decision is to separate normalized facts from vendor payloads instead of forcing one document to do both jobs.
 
-For mapping, treat Huawei data as three families. Atomic/sampling data belongs in `metric_sample`, with one row per interval or measurement and a metric type like `steps`, `heart_rate`, `spo2`, `stress`, `body_temperature`, or `vo2max`. Exercise records belong in `activity_session`, with workout type, duration, route or lap metadata, and summary metrics. Health records belong in `health_record`, with record classes like `sleep_record`, `sleep_breathing`, `tachycardia`, `low_spo2`, `abpm_report`, or `high_body_temperature`. This mirrors Huawei’s official taxonomy and makes your AI layer far easier to keep grounded. citeturn16search4turn55search3turn60search6
+For mapping, treat Huawei data as three families. Atomic/sampling data belongs in `HuaweiHeartSignal` and `HuaweiSpO2Record`, with one document per interval or measurement. Exercise records belong in `HuaweiWorkoutSession`, with workout type, duration, route or lap metadata, and summary metrics. Health records belong in `HuaweiSleepSession`, with sleep session details and sleep stages. This mirrors Huawei’s official taxonomy and makes your AI layer far easier to keep grounded. citeturn16search4turn55search3turn60search6
 
 A good data-flow design is:
 
@@ -173,7 +172,7 @@ sequenceDiagram
   participant Queue as Sync Queue
   participant Worker as Sync Worker
   participant Huawei as Huawei Health APIs
-  participant DB as PostgreSQL
+  participant DB as MongoDB
   participant AI as Feedback Service
 
   Client->>Auth: User consent + Huawei ID sign-in
@@ -328,54 +327,60 @@ export class HuaweiWebhookController {
 The third snippet shows one way to store normalized metrics while still preserving Huawei provenance.
 
 ```ts
-// metrics/metric-sample.entity.ts
-import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
+// metrics/schemas/metric-sample.schema.ts
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { Document, Types } from 'mongoose';
 
-@Entity({ name: 'metric_samples' })
-@Index(['userId', 'source', 'externalId'], { unique: true })
-export class MetricSampleEntity {
-  @PrimaryGeneratedColumn('uuid')
-  id!: string;
+export type MetricSampleDocument = MetricSample & Document;
 
-  @Column({ type: 'uuid' })
-  userId!: string;
+@Schema({ timestamps: true })
+export class MetricSample {
+  _id!: Types.ObjectId;
 
-  @Column({ type: 'text' })
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true, index: true })
+  userId!: Types.ObjectId;
+
+  @Prop({ required: true, default: 'huawei' })
   source!: 'huawei';
 
-  @Column({ type: 'text' })
+  @Prop({ required: true })
   externalId!: string;
 
-  @Column({ type: 'text' })
+  @Prop({ required: true, index: true })
   metricType!: string; // steps, heart_rate, spo2, stress, vo2max, etc.
 
-  @Column({ type: 'timestamptz' })
+  @Prop({ required: true })
   startTime!: Date;
 
-  @Column({ type: 'timestamptz', nullable: true })
-  endTime!: Date | null;
+  @Prop({ required: false })
+  endTime?: Date;
 
-  @Column({ type: 'numeric', nullable: true })
-  valueNumeric!: string | null;
+  @Prop({ required: false })
+  valueNumeric?: number;
 
-  @Column({ type: 'text', nullable: true })
-  valueText!: string | null;
+  @Prop({ required: false })
+  valueText?: string;
 
-  @Column({ type: 'text', nullable: true })
-  unit!: string | null;
+  @Prop({ required: false })
+  unit?: string;
 
-  @Column({ type: 'text', nullable: true })
-  deviceId!: string | null;
+  @Prop({ required: false })
+  deviceId?: string;
 
-  @Column({ type: 'jsonb' })
+  @Prop({ type: Object, required: true })
   rawPayload!: Record<string, unknown>;
 }
+
+export const MetricSampleSchema = SchemaFactory.createForClass(MetricSample);
+MetricSampleSchema.index({ userId: 1, source: 1, externalId: 1 }, { unique: true });
 ```
 
 ```ts
 // metrics/metric-ingestion.service.ts
 import { Injectable } from '@nestjs/common';
-import { Repository } from 'typeorm';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model, Types } from 'mongoose';
+import { MetricSample, MetricSampleDocument } from './schemas/metric-sample.schema';
 
 interface HuaweiMetricDto {
   externalId: string;
@@ -391,32 +396,34 @@ interface HuaweiMetricDto {
 
 @Injectable()
 export class MetricIngestionService {
-  constructor(private readonly repo: Repository<MetricSampleEntity>) {}
+  constructor(
+    @InjectModel(MetricSample.name)
+    private readonly metricSampleModel: Model<MetricSampleDocument>,
+  ) {}
 
-  async upsertHuaweiMetric(userId: string, dto: HuaweiMetricDto) {
-    const entity = this.repo.create({
-      userId,
-      source: 'huawei',
+  async upsertHuaweiMetric(userId: string, dto: HuaweiMetricDto): Promise<MetricSampleDocument> {
+    const updateQuery = {
+      userId: new Types.ObjectId(userId),
+      source: 'huawei' as const,
       externalId: dto.externalId,
+    };
+
+    const updateData = {
       metricType: dto.type,
       startTime: new Date(dto.startTime),
-      endTime: dto.endTime ? new Date(dto.endTime) : null,
-      valueNumeric:
-        dto.valueNumeric === undefined || dto.valueNumeric === null
-          ? null
-          : String(dto.valueNumeric),
-      valueText: dto.valueText ?? null,
-      unit: dto.unit ?? null,
-      deviceId: dto.deviceId ?? null,
+      endTime: dto.endTime ? new Date(dto.endTime) : undefined,
+      valueNumeric: dto.valueNumeric ?? undefined,
+      valueText: dto.valueText ?? undefined,
+      unit: dto.unit ?? undefined,
+      deviceId: dto.deviceId ?? undefined,
       rawPayload: dto.raw,
-    });
+    };
 
-    await this.repo.upsert(entity, {
-      conflictPaths: ['userId', 'source', 'externalId'],
-      skipUpdateIfNoValuesChanged: true,
-    });
-
-    return entity;
+    return this.metricSampleModel.findOneAndUpdate(
+      updateQuery,
+      { $set: updateData },
+      { upsert: true, new: true },
+    ).exec();
   }
 }
 ```
@@ -474,7 +481,7 @@ The implementation path below assumes a single NestJS codebase with separately d
 |---|---|---|
 | Access readiness | Register developer account, complete identity verification, create Huawei project, apply for Health Service Kit, obtain scopes, configure OAuth client, and decide whether enterprise verification is needed | **Medium** |
 | Consent and auth foundation | Build Huawei sign-in flow, authorization-code callback, encrypted refresh-token storage, consent ledger, token refresh jobs, and revocation path | **Medium** |
-| Ingestion MVP | Sync user profile, daily activity, workouts, sleep, heart rate, and SpO2 into normalized PostgreSQL tables; attach raw payload retention | **High** |
+| Ingestion MVP | Sync user profile, daily activity, workouts, sleep, heart rate, and SpO2 into normalized MongoDB collections; attach raw payload retention | **High** |
 | Reliability layer | Add queue-backed backfills, cursor-based incrementals, retry windows, freshness tracking, and observability dashboards | **High** |
 | Subscription integration | Register callback address, receive Huawei event notifications, and combine them with incremental pulls | **Medium** |
 | Expanded health records | Add health-record families such as sleep breathing, low SpO2, tachy/brady, ABPM, VO2 max, HRV, and running form where scopes and developer tier allow | **Medium to High** |
@@ -490,4 +497,4 @@ Monitoring should cover technical and product-level telemetry: OAuth success rat
 
 Rollback strategy should be explicit. You need the ability to disable one Huawei data family without disabling the whole integration, to revert to polling-only mode if subscription callbacks misbehave, to freeze AI generation and fall back to deterministic template output, and to revert prompt/model versions independently from the rest of the system. Store prompt hashes, model IDs, and feature payload versions with every generated feedback event so you can audit and unwind changes with confidence.
 
-The shortest sensible path to production is therefore: secure developer approval and scopes, ship OAuth and token management, sync the high-value core metrics into a PostgreSQL schema that preserves raw provenance, add subscription callbacks as hints rather than absolute truth, and only then layer AI on top of curated features. That sequence respects Huawei’s platform realities, NestJS’s strengths, and the compliance burden of building on health data.
+The shortest sensible path to production is therefore: secure developer approval and scopes, ship OAuth and token management, sync the high-value core metrics into normalized MongoDB collections that preserve raw provenance, add subscription callbacks as hints rather than absolute truth, and only then layer AI on top of curated features. That sequence respects Huawei’s platform realities, NestJS’s strengths, and the compliance burden of building on health data.

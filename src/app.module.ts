@@ -8,6 +8,7 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { HealthModule } from './health/health.module';
 import { HuaweiModule } from './integrations/huawei/huawei.module';
+import { HealthDataModule } from './health-data/health-data.module';
 import configuration from './config/configuration';
 
 @Module({
@@ -24,6 +25,7 @@ import configuration from './config/configuration';
     UsersModule,
     HealthModule,
     HuaweiModule,
+    HealthDataModule,
   ],
 })
 export class AppModule {}

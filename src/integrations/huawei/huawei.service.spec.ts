@@ -48,15 +48,35 @@ describe('HuaweiService', () => {
   const tokenModel = createModelMock();
   const connectionModel = createModelMock();
   const ledgerModel = createModelMock();
+  const clientService = {
+    getActivityDaily: jest.fn(),
+    getWorkouts: jest.fn(),
+    getSleep: jest.fn(),
+    getHeartSignals: jest.fn(),
+    getSpO2: jest.fn(),
+  };
+  const dailyActivityModel = createModelMock();
+  const workoutSessionModel = createModelMock();
+  const sleepSessionModel = createModelMock();
+  const heartSignalModel = createModelMock();
+  const spo2RecordModel = createModelMock();
+  const syncProgressModel = createModelMock();
 
   const createService = () =>
     new HuaweiService(
       configService as ConfigService,
       tokenCryptoService as HuaweiTokenCryptoService,
+      clientService as any,
       oauthStateModel as any,
       tokenModel as any,
       connectionModel as any,
       ledgerModel as any,
+      dailyActivityModel as any,
+      workoutSessionModel as any,
+      sleepSessionModel as any,
+      heartSignalModel as any,
+      spo2RecordModel as any,
+      syncProgressModel as any,
     );
 
   beforeEach(() => {
