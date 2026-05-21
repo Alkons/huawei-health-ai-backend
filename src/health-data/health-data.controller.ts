@@ -108,7 +108,7 @@ export class HealthDataController {
       'Returns historical trends for activity, sleep, resting heart rate, and SpO2 with data-source transparency.',
   })
   async getTrends(@User() userId: string, @Query('days') days?: string) {
-    const daysNum = days ? parseInt(days, 10) : 7;
+    const daysNum = days ? Number.parseInt(days, 10) : 7;
     if (![7, 14, 30].includes(daysNum)) {
       throw new BadRequestException('Trend window must be 7, 14, or 30 days.');
     }
