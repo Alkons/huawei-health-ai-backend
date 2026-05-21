@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   Get,
   HttpCode,
@@ -93,5 +94,24 @@ export class HealthDataController {
   })
   async getDashboard(@User() userId: string) {
     return this.healthDataService.getDashboard(userId);
+  }
+
+  @Get('trends')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Get historical trend graphs (7/14/30 days) with reliability reports',
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Returns historical trends for activity, sleep, resting heart rate, and SpO2 with data-source transparency.',
+  })
+  async getTrends(@User() userId: string, @Query('days') days?: string) {
+    const daysNum = days ? parseInt(days, 10) : 7;
+    if (![7, 14, 30].includes(daysNum)) {
+      throw new BadRequestException('Trend window must be 7, 14, or 30 days.');
+    }
+    return this.healthDataService.getTrends(userId, daysNum);
   }
 }

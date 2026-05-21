@@ -257,6 +257,22 @@ paths:
       security: *a3
       summary: Get consolidated summary cards for key health metrics
       tags: *a4
+  /v1/health-data/trends:
+    get:
+      operationId: HealthDataController_getTrends
+      parameters:
+        - name: days
+          required: true
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Returns historical trends for activity, sleep, resting heart rate,
+            and SpO2 with data-source transparency.
+      security: *a3
+      summary: Get historical trend graphs (7/14/30 days) with reliability reports
+      tags: *a4
 info:
   title: NestJS Backend API
   description: REST API template with authentication, health checks, caching, and analytics

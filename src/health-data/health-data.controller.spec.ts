@@ -19,6 +19,7 @@ describe('HealthDataController', () => {
             getTimeline: jest.fn(),
             getDashboard: jest.fn(),
             getReliabilityReport: jest.fn(),
+            getTrends: jest.fn(),
           },
         },
       ],
@@ -110,6 +111,37 @@ describe('HealthDataController', () => {
 
       expect(service.getReliabilityReport).toHaveBeenCalledWith(userId);
       expect(result).toEqual(mockResult);
+    });
+  });
+
+  describe('getTrends', () => {
+    it('should call service.getTrends with userId and parsed days parameter', async () => {
+      const userId = 'user-123';
+      const mockResult = { days: 14, trends: {} };
+      (service.getTrends as jest.Mock).mockResolvedValue(mockResult);
+
+      const result = await controller.getTrends(userId, '14');
+
+      expect(service.getTrends).toHaveBeenCalledWith(userId, 14);
+      expect(result).toEqual(mockResult);
+    });
+
+    it('should default days to 7 if not specified', async () => {
+      const userId = 'user-123';
+      const mockResult = { days: 7, trends: {} };
+      (service.getTrends as jest.Mock).mockResolvedValue(mockResult);
+
+      const result = await controller.getTrends(userId);
+
+      expect(service.getTrends).toHaveBeenCalledWith(userId, 7);
+      expect(result).toEqual(mockResult);
+    });
+
+    it('should throw BadRequestException if invalid days window is provided', async () => {
+      const userId = 'user-123';
+      await expect(controller.getTrends(userId, '10')).rejects.toThrow(
+        'Trend window must be 7, 14, or 30 days.',
+      );
     });
   });
 });
