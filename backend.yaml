@@ -206,6 +206,17 @@ paths:
       summary: Get current Huawei synchronization progress
       tags: &a4
         - health-data
+  /v1/health-data/reliability:
+    get:
+      operationId: HealthDataController_getReliability
+      parameters: []
+      responses:
+        "200":
+          description: Returns computed freshness, completeness, confidence, and action
+            items.
+      security: *a3
+      summary: Get overall and per-category sync reliability and guidance
+      tags: *a4
   /v1/health-data/sync:
     post:
       operationId: HealthDataController_triggerSync
