@@ -653,130 +653,30 @@ export class HuaweiService {
     try {
       const token = await this.getOrRefreshToken(userId);
       const to = new Date();
-      const from = new Date();
+      let isEmpty = false;
 
-      if (category === 'activity') {
-        from.setDate(to.getDate() - 3);
-        const raw = await this.clientService.getActivityDaily(token, from, to);
-        const operations = raw.map((item) => ({
-          updateOne: {
-            filter: { userId: userIdObj, date: item.date },
-            update: {
-              $set: {
-                provider: 'huawei' as const,
-                steps: item.steps,
-                calories: item.calories,
-                distance: item.distance,
-                intensityMinutes: item.intensityMinutes,
-                hoursActive: item.hoursActive,
-                lastSyncedAt: new Date(),
-              },
-              $push: { rawPayloads: { $each: [item], $slice: -10 } },
-            },
-            upsert: true,
-          },
-        }));
-        if (operations.length > 0) {
-          await this.dailyActivityModel.bulkWrite(operations);
-        }
-        await this.updateSyncSuccess(userIdObj, category, raw.length === 0);
-      } else if (category === 'workouts') {
-        from.setDate(to.getDate() - 7);
-        const raw = await this.clientService.getWorkouts(token, from, to);
-        const operations = raw.map((item) => ({
-          updateOne: {
-            filter: { userId: userIdObj, workoutId: item.workoutId },
-            update: {
-              $set: {
-                provider: 'huawei' as const,
-                activityType: item.activityType,
-                startTime: item.startTime,
-                endTime: item.endTime,
-                duration: item.duration,
-                calories: item.calories,
-                distance: item.distance,
-                avgHeartRate: item.avgHeartRate,
-                maxHeartRate: item.maxHeartRate,
-                rawPayload: item,
-              },
-            },
-            upsert: true,
-          },
-        }));
-        if (operations.length > 0) {
-          await this.workoutSessionModel.bulkWrite(operations);
-        }
-        await this.updateSyncSuccess(userIdObj, category, raw.length === 0);
-      } else if (category === 'sleep') {
-        from.setDate(to.getDate() - 7);
-        const raw = await this.clientService.getSleep(token, from, to);
-        const operations = raw.map((item) => ({
-          updateOne: {
-            filter: { userId: userIdObj, sleepId: item.sleepId },
-            update: {
-              $set: {
-                provider: 'huawei' as const,
-                startTime: item.startTime,
-                endTime: item.endTime,
-                duration: item.duration,
-                deepSleepDuration: item.deepSleepDuration,
-                lightSleepDuration: item.lightSleepDuration,
-                remSleepDuration: item.remSleepDuration,
-                awakeDuration: item.awakeDuration,
-                rawPayload: item,
-              },
-            },
-            upsert: true,
-          },
-        }));
-        if (operations.length > 0) {
-          await this.sleepSessionModel.bulkWrite(operations);
-        }
-        await this.updateSyncSuccess(userIdObj, category, raw.length === 0);
-      } else if (category === 'heartSignals') {
-        from.setDate(to.getDate() - 1);
-        const raw = await this.clientService.getHeartSignals(token, from, to);
-        const operations = raw.map((item) => ({
-          updateOne: {
-            filter: { userId: userIdObj, timestamp: item.timestamp },
-            update: {
-              $set: {
-                provider: 'huawei' as const,
-                heartRate: item.heartRate,
-                restingHeartRate: item.restingHeartRate,
-                hrv: item.hrv,
-              },
-            },
-            upsert: true,
-          },
-        }));
-        if (operations.length > 0) {
-          await this.heartSignalModel.bulkWrite(operations);
-        }
-        await this.updateSyncSuccess(userIdObj, category, raw.length === 0);
-      } else if (category === 'spo2') {
-        from.setDate(to.getDate() - 1);
-        const raw = await this.clientService.getSpO2(token, from, to);
-        const operations = raw.map((item) => ({
-          updateOne: {
-            filter: { userId: userIdObj, timestamp: item.timestamp },
-            update: {
-              $set: {
-                provider: 'huawei' as const,
-                spo2: item.spo2,
-                isLowSpO2: item.isLowSpO2,
-              },
-            },
-            upsert: true,
-          },
-        }));
-        if (operations.length > 0) {
-          await this.spo2RecordModel.bulkWrite(operations);
-        }
-        await this.updateSyncSuccess(userIdObj, category, raw.length === 0);
-      } else {
-        await this.updateSyncSuccess(userIdObj, category, true);
+      switch (category) {
+        case 'activity':
+          isEmpty = await this.syncActivityCategory(userIdObj, token, to);
+          break;
+        case 'workouts':
+          isEmpty = await this.syncWorkoutsCategory(userIdObj, token, to);
+          break;
+        case 'sleep':
+          isEmpty = await this.syncSleepCategory(userIdObj, token, to);
+          break;
+        case 'heartSignals':
+          isEmpty = await this.syncHeartSignalsCategory(userIdObj, token, to);
+          break;
+        case 'spo2':
+          isEmpty = await this.syncSpO2Category(userIdObj, token, to);
+          break;
+        default:
+          isEmpty = true;
+          break;
       }
+
+      await this.updateSyncSuccess(userIdObj, category, isEmpty);
     } catch (err: unknown) {
       this.logger.error(
         `Sync failed for user ${userId} and category ${category}`,
@@ -797,6 +697,160 @@ export class HuaweiService {
         { upsert: true },
       );
     }
+  }
+
+  private async syncActivityCategory(
+    userIdObj: Types.ObjectId,
+    token: string,
+    to: Date,
+  ): Promise<boolean> {
+    const from = new Date(to);
+    from.setDate(to.getDate() - 3);
+    const raw = await this.clientService.getActivityDaily(token, from, to);
+    const operations = raw.map((item) => ({
+      updateOne: {
+        filter: { userId: userIdObj, date: item.date },
+        update: {
+          $set: {
+            provider: 'huawei' as const,
+            steps: item.steps,
+            calories: item.calories,
+            distance: item.distance,
+            intensityMinutes: item.intensityMinutes,
+            hoursActive: item.hoursActive,
+            lastSyncedAt: new Date(),
+          },
+          $push: { rawPayloads: { $each: [item], $slice: -10 } },
+        },
+        upsert: true,
+      },
+    }));
+    if (operations.length > 0) {
+      await this.dailyActivityModel.bulkWrite(operations);
+    }
+    return raw.length === 0;
+  }
+
+  private async syncWorkoutsCategory(
+    userIdObj: Types.ObjectId,
+    token: string,
+    to: Date,
+  ): Promise<boolean> {
+    const from = new Date(to);
+    from.setDate(to.getDate() - 7);
+    const raw = await this.clientService.getWorkouts(token, from, to);
+    const operations = raw.map((item) => ({
+      updateOne: {
+        filter: { userId: userIdObj, workoutId: item.workoutId },
+        update: {
+          $set: {
+            provider: 'huawei' as const,
+            activityType: item.activityType,
+            startTime: item.startTime,
+            endTime: item.endTime,
+            duration: item.duration,
+            calories: item.calories,
+            distance: item.distance,
+            avgHeartRate: item.avgHeartRate,
+            maxHeartRate: item.maxHeartRate,
+            rawPayload: item,
+          },
+        },
+        upsert: true,
+      },
+    }));
+    if (operations.length > 0) {
+      await this.workoutSessionModel.bulkWrite(operations);
+    }
+    return raw.length === 0;
+  }
+
+  private async syncSleepCategory(
+    userIdObj: Types.ObjectId,
+    token: string,
+    to: Date,
+  ): Promise<boolean> {
+    const from = new Date(to);
+    from.setDate(to.getDate() - 7);
+    const raw = await this.clientService.getSleep(token, from, to);
+    const operations = raw.map((item) => ({
+      updateOne: {
+        filter: { userId: userIdObj, sleepId: item.sleepId },
+        update: {
+          $set: {
+            provider: 'huawei' as const,
+            startTime: item.startTime,
+            endTime: item.endTime,
+            duration: item.duration,
+            deepSleepDuration: item.deepSleepDuration,
+            lightSleepDuration: item.lightSleepDuration,
+            remSleepDuration: item.remSleepDuration,
+            awakeDuration: item.awakeDuration,
+            rawPayload: item,
+          },
+        },
+        upsert: true,
+      },
+    }));
+    if (operations.length > 0) {
+      await this.sleepSessionModel.bulkWrite(operations);
+    }
+    return raw.length === 0;
+  }
+
+  private async syncHeartSignalsCategory(
+    userIdObj: Types.ObjectId,
+    token: string,
+    to: Date,
+  ): Promise<boolean> {
+    const from = new Date(to);
+    from.setDate(to.getDate() - 1);
+    const raw = await this.clientService.getHeartSignals(token, from, to);
+    const operations = raw.map((item) => ({
+      updateOne: {
+        filter: { userId: userIdObj, timestamp: item.timestamp },
+        update: {
+          $set: {
+            provider: 'huawei' as const,
+            heartRate: item.heartRate,
+            restingHeartRate: item.restingHeartRate,
+            hrv: item.hrv,
+          },
+        },
+        upsert: true,
+      },
+    }));
+    if (operations.length > 0) {
+      await this.heartSignalModel.bulkWrite(operations);
+    }
+    return raw.length === 0;
+  }
+
+  private async syncSpO2Category(
+    userIdObj: Types.ObjectId,
+    token: string,
+    to: Date,
+  ): Promise<boolean> {
+    const from = new Date(to);
+    from.setDate(to.getDate() - 1);
+    const raw = await this.clientService.getSpO2(token, from, to);
+    const operations = raw.map((item) => ({
+      updateOne: {
+        filter: { userId: userIdObj, timestamp: item.timestamp },
+        update: {
+          $set: {
+            provider: 'huawei' as const,
+            spo2: item.spo2,
+            isLowSpO2: item.isLowSpO2,
+          },
+        },
+        upsert: true,
+      },
+    }));
+    if (operations.length > 0) {
+      await this.spo2RecordModel.bulkWrite(operations);
+    }
+    return raw.length === 0;
   }
 
   async syncAllEnabledCategories(userId: string): Promise<void> {

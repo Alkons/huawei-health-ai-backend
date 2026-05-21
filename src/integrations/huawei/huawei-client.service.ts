@@ -1,3 +1,4 @@
+import { randomInt } from 'crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AppConfig } from '../../config/configuration';
@@ -309,11 +310,11 @@ export class HuaweiClientService {
       const dateString = current.toISOString().split('T')[0];
       list.push({
         date: dateString,
-        steps: Math.floor(Math.random() * 8000) + 4000,
-        calories: Math.floor(Math.random() * 400) + 200,
-        distance: Math.floor(Math.random() * 5000) + 2000,
-        intensityMinutes: Math.floor(Math.random() * 45) + 15,
-        hoursActive: Math.floor(Math.random() * 6) + 6,
+        steps: randomInt(4000, 12000),
+        calories: randomInt(200, 600),
+        distance: randomInt(2000, 7000),
+        intensityMinutes: randomInt(15, 60),
+        hoursActive: randomInt(6, 12),
       });
       current.setDate(current.getDate() + 1);
     }
@@ -325,23 +326,23 @@ export class HuaweiClientService {
     const current = new Date(from);
     let index = 0;
     while (current <= to) {
-      if (Math.random() > 0.4) {
+      if (randomInt(0, 100) >= 40) {
         const start = new Date(current);
-        start.setHours(9 + Math.floor(Math.random() * 8), 0, 0, 0);
+        start.setHours(randomInt(9, 17), 0, 0, 0);
         const end = new Date(start);
-        const durationSec = Math.floor(Math.random() * 3600) + 1800; // 30-90m
+        const durationSec = randomInt(1800, 5400); // 30-90m
         end.setSeconds(end.getSeconds() + durationSec);
 
         list.push({
           workoutId: `mock_workout_${index++}_${current.getTime()}`,
-          activityType: Math.random() > 0.5 ? 'running' : 'cycling',
+          activityType: randomInt(0, 100) >= 50 ? 'running' : 'cycling',
           startTime: start,
           endTime: end,
           duration: durationSec,
-          calories: Math.floor(Math.random() * 500) + 250,
-          distance: Math.floor(Math.random() * 10000) + 5000,
-          avgHeartRate: Math.floor(Math.random() * 40) + 130,
-          maxHeartRate: Math.floor(Math.random() * 30) + 170,
+          calories: randomInt(250, 750),
+          distance: randomInt(5000, 15000),
+          avgHeartRate: randomInt(130, 170),
+          maxHeartRate: randomInt(170, 200),
         });
       }
       current.setDate(current.getDate() + 1);
@@ -358,7 +359,7 @@ export class HuaweiClientService {
       start.setHours(23, 0, 0, 0);
       const end = new Date(start);
       end.setDate(end.getDate() + 1);
-      end.setHours(7, Math.floor(Math.random() * 60), 0, 0);
+      end.setHours(7, randomInt(0, 60), 0, 0);
 
       const totalMin = Math.floor((end.getTime() - start.getTime()) / 60000);
       const deep = Math.floor(totalMin * 0.25);
@@ -390,9 +391,9 @@ export class HuaweiClientService {
         timestamp.setHours(hour, 0, 0, 0);
         list.push({
           timestamp,
-          heartRate: Math.floor(Math.random() * 40) + 60,
-          restingHeartRate: Math.floor(Math.random() * 10) + 55,
-          hrv: Math.floor(Math.random() * 30) + 40,
+          heartRate: randomInt(60, 100),
+          restingHeartRate: randomInt(55, 65),
+          hrv: randomInt(40, 70),
         });
       }
       current.setDate(current.getDate() + 1);
@@ -407,7 +408,7 @@ export class HuaweiClientService {
       for (let hour = 2; hour < 24; hour += 6) {
         const timestamp = new Date(current);
         timestamp.setHours(hour, 0, 0, 0);
-        const spo2 = Math.floor(Math.random() * 5) + 95; // 95-99%
+        const spo2 = randomInt(95, 100); // 95-99%
         list.push({
           timestamp,
           spo2,
