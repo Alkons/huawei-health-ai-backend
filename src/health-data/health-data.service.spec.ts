@@ -9,6 +9,7 @@ import { HuaweiWorkoutSession } from '../integrations/huawei/schemas/huawei-work
 import { HuaweiSleepSession } from '../integrations/huawei/schemas/huawei-sleep-session.schema';
 import { HuaweiHeartSignal } from '../integrations/huawei/schemas/huawei-heart-signal.schema';
 import { HuaweiSpO2Record } from '../integrations/huawei/schemas/huawei-spo2-record.schema';
+import { HuaweiConnection } from '../integrations/huawei/schemas/huawei-connection.schema';
 
 describe('HealthDataService', () => {
   let service: HealthDataService;
@@ -16,6 +17,7 @@ describe('HealthDataService', () => {
 
   let syncProgressModel: {
     find: jest.Mock;
+    findOne: jest.Mock;
     lean: jest.Mock;
   };
   let dailyActivityModel: {
@@ -44,10 +46,15 @@ describe('HealthDataService', () => {
     sort: jest.Mock;
     lean: jest.Mock;
   };
+  let connectionModel: {
+    findOne: jest.Mock;
+    lean: jest.Mock;
+  };
 
   beforeEach(async () => {
     syncProgressModel = {
       find: jest.fn().mockReturnThis(),
+      findOne: jest.fn().mockReturnThis(),
       lean: jest.fn(),
     };
 
@@ -79,6 +86,11 @@ describe('HealthDataService', () => {
     spo2RecordModel = {
       findOne: jest.fn().mockReturnThis(),
       sort: jest.fn().mockReturnThis(),
+      lean: jest.fn(),
+    };
+
+    connectionModel = {
+      findOne: jest.fn().mockReturnThis(),
       lean: jest.fn(),
     };
 
@@ -114,6 +126,10 @@ describe('HealthDataService', () => {
         {
           provide: getModelToken(HuaweiSpO2Record.name),
           useValue: spo2RecordModel,
+        },
+        {
+          provide: getModelToken(HuaweiConnection.name),
+          useValue: connectionModel,
         },
       ],
     }).compile();
@@ -232,22 +248,142 @@ describe('HealthDataService', () => {
   describe('getDashboard', () => {
     it('should return latest activity, sleep, heart rate, and spo2 values', async () => {
       const userId = new Types.ObjectId().toString();
-      const mockActivity = { date: '2026-05-20', steps: 8000 };
-      const mockSleep = { startTime: new Date(), duration: 420 };
+      const mockActivity = {
+        date: '2026-05-20',
+        steps: 8000,
+        lastSyncedAt: new Date(),
+      };
+      const mockSleep = {
+        startTime: new Date(),
+        endTime: new Date(),
+        duration: 420,
+      };
       const mockHeart = { timestamp: new Date(), heartRate: 72 };
       const mockSpO2 = { timestamp: new Date(), spo2: 98 };
+
+      connectionModel.lean.mockResolvedValue({
+        status: 'connected',
+        enabledCategories: ['activity', 'sleep', 'heartSignals', 'spo2'],
+      });
 
       dailyActivityModel.lean.mockResolvedValue(mockActivity);
       sleepSessionModel.lean.mockResolvedValue(mockSleep);
       heartSignalModel.lean.mockResolvedValue(mockHeart);
       spo2RecordModel.lean.mockResolvedValue(mockSpO2);
 
+      syncProgressModel.findOne.mockReturnThis();
+      syncProgressModel.lean.mockResolvedValue(null);
+
       const dashboard = await service.getDashboard(userId);
 
-      expect(dashboard.activity).toEqual(mockActivity);
-      expect(dashboard.sleep).toEqual(mockSleep);
-      expect(dashboard.heartRate).toEqual(mockHeart);
-      expect(dashboard.spo2).toEqual(mockSpO2);
+      expect(dashboard.activity?.steps).toEqual(8000);
+      expect(dashboard.sleep?.duration).toEqual(420);
+      expect(dashboard.heartRate?.heartRate).toEqual(72);
+      expect(dashboard.spo2?.spo2).toEqual(98);
+    });
+  });
+
+  describe('getReliabilityReport', () => {
+    it('should return low confidence report if not connected', async () => {
+      const userId = new Types.ObjectId().toString();
+      connectionModel.lean.mockResolvedValue(null);
+
+      const report = await service.getReliabilityReport(userId);
+
+      expect(report.overall.freshness).toBe('unknown');
+      expect(report.overall.completeness).toBe('none');
+      expect(report.overall.confidence).toBe('low');
+      expect(report.overall.isStaleBannerRequired).toBe(true);
+      expect(report.categories.length).toBe(0);
+    });
+
+    it('should calculate high confidence report on optimal sync', async () => {
+      const userId = new Types.ObjectId().toString();
+      const now = new Date();
+      connectionModel.lean.mockResolvedValue({
+        status: 'connected',
+        enabledCategories: ['activity', 'workouts'],
+        lastSyncAt: now,
+      });
+
+      syncProgressModel.find.mockReturnThis();
+      syncProgressModel.lean.mockResolvedValue([
+        {
+          category: 'activity',
+          status: 'synced',
+          reasonClass: 'ok',
+          lastSuccessAt: now,
+        },
+        {
+          category: 'workouts',
+          status: 'synced',
+          reasonClass: 'ok',
+          lastSuccessAt: now,
+        },
+      ]);
+
+      const report = await service.getReliabilityReport(userId);
+
+      expect(report.overall.freshness).toBe('fresh');
+      expect(report.overall.completeness).toBe('complete');
+      expect(report.overall.confidence).toBe('high');
+      expect(report.overall.isStaleBannerRequired).toBe(false);
+      expect(report.categories.length).toBe(2);
+      expect(report.categories[0].freshness).toBe('fresh');
+    });
+
+    it('should return low confidence if data is stale', async () => {
+      const userId = new Types.ObjectId().toString();
+      const staleTime = new Date(Date.now() - 30 * 60 * 60 * 1000); // 30h ago
+      connectionModel.lean.mockResolvedValue({
+        status: 'connected',
+        enabledCategories: ['activity'],
+        lastSyncAt: staleTime,
+      });
+
+      syncProgressModel.find.mockReturnThis();
+      syncProgressModel.lean.mockResolvedValue([
+        {
+          category: 'activity',
+          status: 'synced',
+          reasonClass: 'ok',
+          lastSuccessAt: staleTime,
+        },
+      ]);
+
+      const report = await service.getReliabilityReport(userId);
+
+      expect(report.overall.freshness).toBe('stale');
+      expect(report.overall.confidence).toBe('low');
+      expect(report.overall.isStaleBannerRequired).toBe(true);
+    });
+
+    it('should calculate action steps for failed categories', async () => {
+      const userId = new Types.ObjectId().toString();
+      connectionModel.lean.mockResolvedValue({
+        status: 'connected',
+        enabledCategories: ['activity'],
+        lastSyncAt: new Date(),
+      });
+
+      syncProgressModel.find.mockReturnThis();
+      syncProgressModel.lean.mockResolvedValue([
+        {
+          category: 'activity',
+          status: 'failed',
+          reasonClass: 'permissionNotGranted',
+          explanation: 'Insufficient scope',
+        },
+      ]);
+
+      const report = await service.getReliabilityReport(userId);
+
+      expect(report.overall.completeness).toBe('none');
+      expect(report.overall.confidence).toBe('low');
+      expect(report.overall.guidance.actionSteps.length).toBeGreaterThan(0);
+      expect(report.overall.guidance.actionSteps).toContain(
+        'Go to Consent settings in the app',
+      );
     });
   });
 });

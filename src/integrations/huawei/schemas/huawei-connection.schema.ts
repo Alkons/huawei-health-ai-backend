@@ -12,7 +12,7 @@ export type HuaweiDataFreshnessStatus = 'fresh' | 'stale' | 'unknown';
 export class HuaweiConnection {
   _id!: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true, index: true })
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true, unique: true })
   userId!: Types.ObjectId;
 
   @Prop({ required: true })
@@ -64,4 +64,3 @@ export class HuaweiConnection {
 
 export const HuaweiConnectionSchema =
   SchemaFactory.createForClass(HuaweiConnection);
-HuaweiConnectionSchema.index({ userId: 1 }, { unique: true });

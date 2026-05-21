@@ -35,6 +35,20 @@ export class HealthDataController {
     return this.healthDataService.getSyncStatus(userId);
   }
 
+  @Get('reliability')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get overall and per-category sync reliability and guidance',
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Returns computed freshness, completeness, confidence, and action items.',
+  })
+  async getReliability(@User() userId: string) {
+    return this.healthDataService.getReliabilityReport(userId);
+  }
+
   @Post('sync')
   @HttpCode(HttpStatus.ACCEPTED)
   @ApiOperation({ summary: 'Manually trigger background health data sync' })

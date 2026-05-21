@@ -18,6 +18,7 @@ describe('HealthDataController', () => {
             triggerSync: jest.fn(),
             getTimeline: jest.fn(),
             getDashboard: jest.fn(),
+            getReliabilityReport: jest.fn(),
           },
         },
       ],
@@ -89,6 +90,25 @@ describe('HealthDataController', () => {
       const result = await controller.getDashboard(userId);
 
       expect(service.getDashboard).toHaveBeenCalledWith(userId);
+      expect(result).toEqual(mockResult);
+    });
+  });
+
+  describe('getReliability', () => {
+    it('should call service.getReliabilityReport with userId', async () => {
+      const userId = 'user-123';
+      const mockResult = {
+        overall: {
+          freshness: 'fresh',
+          completeness: 'complete',
+          confidence: 'high',
+        },
+      };
+      (service.getReliabilityReport as jest.Mock).mockResolvedValue(mockResult);
+
+      const result = await controller.getReliability(userId);
+
+      expect(service.getReliabilityReport).toHaveBeenCalledWith(userId);
       expect(result).toEqual(mockResult);
     });
   });
