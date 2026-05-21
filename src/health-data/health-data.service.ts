@@ -233,6 +233,60 @@ export class HealthDataService {
       .find({ userId: userIdObj })
       .lean();
 
+    const { categoryReports, syncedCount } = this.buildCategoryReports(
+      enabledCategories,
+      syncProgresses,
+      now,
+    );
+
+    const completeness = this.determineCompleteness(
+      enabledCategories.length,
+      syncedCount,
+    );
+
+    const overallFreshness = this.calculateFreshness(
+      connection.lastSyncAt,
+      now,
+    );
+
+    const confidence = this.determineConfidence(
+      completeness,
+      overallFreshness,
+      categoryReports,
+    );
+
+    const guidance = this.determineGuidance(
+      completeness,
+      overallFreshness,
+      categoryReports,
+    );
+
+    const isStaleBannerRequired =
+      overallFreshness === 'stale' ||
+      overallFreshness === 'unknown' ||
+      completeness !== 'complete';
+
+    return {
+      overall: {
+        lastSyncAt: connection.lastSyncAt,
+        freshness: overallFreshness,
+        completeness,
+        confidence,
+        guidance,
+        isStaleBannerRequired,
+      },
+      categories: categoryReports,
+    };
+  }
+
+  /**
+   * Helper to build individual category reliability reports and track synced count.
+   */
+  private buildCategoryReports(
+    enabledCategories: HuaweiConsentCategory[],
+    syncProgresses: HuaweiSyncProgress[],
+    now: Date,
+  ): { categoryReports: CategoryReliability[]; syncedCount: number } {
     const categoryReports: CategoryReliability[] = [];
     let syncedCount = 0;
 
@@ -246,8 +300,7 @@ export class HealthDataService {
     ];
 
     for (const cat of allCategories) {
-      const isEnabled = enabledCategories.includes(cat);
-      if (!isEnabled) {
+      if (!enabledCategories.includes(cat)) {
         continue;
       }
 
@@ -286,88 +339,99 @@ export class HealthDataService {
       });
     }
 
-    // Determine overall completeness
-    let completeness: HuaweiCompletenessState = 'none';
-    if (enabledCategories.length > 0) {
-      if (syncedCount === enabledCategories.length) {
-        completeness = 'complete';
-      } else if (syncedCount > 0) {
-        completeness = 'partial';
-      } else {
-        completeness = 'none';
-      }
+    return { categoryReports, syncedCount };
+  }
+
+  /**
+   * Helper to determine overall completeness of synchronization.
+   */
+  private determineCompleteness(
+    enabledCategoriesCount: number,
+    syncedCount: number,
+  ): HuaweiCompletenessState {
+    if (enabledCategoriesCount === 0) {
+      return 'none';
+    }
+    if (syncedCount === enabledCategoriesCount) {
+      return 'complete';
+    }
+    if (syncedCount > 0) {
+      return 'partial';
+    }
+    return 'none';
+  }
+
+  /**
+   * Helper to determine overall confidence level based on completeness and freshness.
+   */
+  private determineConfidence(
+    completeness: HuaweiCompletenessState,
+    overallFreshness: HuaweiFreshnessState,
+    categoryReports: CategoryReliability[],
+  ): HuaweiConfidenceLevel {
+    if (completeness === 'complete' && overallFreshness === 'fresh') {
+      return 'high';
     }
 
-    // Determine overall freshness
-    const overallFreshness = this.calculateFreshness(
-      connection.lastSyncAt,
-      now,
+    const hasFreshOrDelayedCoreData = categoryReports.some(
+      (c) =>
+        (c.category === 'activity' || c.category === 'workouts') &&
+        (c.freshness === 'fresh' || c.freshness === 'delayed'),
     );
 
-    // Determine overall confidence
-    let confidence: HuaweiConfidenceLevel;
-    if (completeness === 'complete' && overallFreshness === 'fresh') {
-      confidence = 'high';
-    } else if (
+    if (
       (completeness === 'complete' && overallFreshness === 'delayed') ||
-      (completeness === 'partial' &&
-        categoryReports.some(
-          (c) =>
-            (c.category === 'activity' || c.category === 'workouts') &&
-            (c.freshness === 'fresh' || c.freshness === 'delayed'),
-        ))
+      (completeness === 'partial' && hasFreshOrDelayedCoreData)
     ) {
-      confidence = 'medium';
-    } else {
-      confidence = 'low';
+      return 'medium';
     }
 
-    // Determine overall guidance message
-    let guidanceMessage =
-      'All your data is successfully synchronized. AI coaching is optimal.';
-    let actionSteps: string[] = [];
+    return 'low';
+  }
 
+  /**
+   * Helper to determine overall guidance message and specific action steps.
+   */
+  private determineGuidance(
+    completeness: HuaweiCompletenessState,
+    overallFreshness: HuaweiFreshnessState,
+    categoryReports: CategoryReliability[],
+  ): { message: string; actionSteps: string[] } {
     if (completeness === 'none') {
-      guidanceMessage =
-        'No health data has been synchronized. AI coaching is currently disabled.';
-      actionSteps = this.getSpecificActionSteps(categoryReports);
-      if (actionSteps.length === 0) {
-        actionSteps = [
-          'Open Huawei Health app on your phone',
-          'Ensure automatic synchronization is enabled',
-          'Re-authenticate or check consent permissions in the app settings',
-        ];
-      }
-    } else if (completeness === 'partial' || overallFreshness === 'stale') {
-      guidanceMessage =
-        'Some sync pipelines are delayed or incomplete. AI coaching insights may be limited.';
-      actionSteps = this.getSpecificActionSteps(categoryReports);
-      if (actionSteps.length === 0) {
-        actionSteps = [
-          'Open Huawei Health app to force sync with your wearable',
-          'Ensure your phone has an active internet connection',
-        ];
-      }
+      const specificSteps = this.getSpecificActionSteps(categoryReports);
+      return {
+        message:
+          'No health data has been synchronized. AI coaching is currently disabled.',
+        actionSteps:
+          specificSteps.length > 0
+            ? specificSteps
+            : [
+                'Open Huawei Health app on your phone',
+                'Ensure automatic synchronization is enabled',
+                'Re-authenticate or check consent permissions in the app settings',
+              ],
+      };
     }
 
-    const overallStaleBanner =
-      overallFreshness === 'stale' ||
-      overallFreshness === 'unknown' ||
-      completeness !== 'complete';
+    if (completeness === 'partial' || overallFreshness === 'stale') {
+      const specificSteps = this.getSpecificActionSteps(categoryReports);
+      return {
+        message:
+          'Some sync pipelines are delayed or incomplete. AI coaching insights may be limited.',
+        actionSteps:
+          specificSteps.length > 0
+            ? specificSteps
+            : [
+                'Open Huawei Health app to force sync with your wearable',
+                'Ensure your phone has an active internet connection',
+              ],
+      };
+    }
 
     return {
-      overall: {
-        lastSyncAt: connection.lastSyncAt,
-        freshness: overallFreshness,
-        completeness,
-        confidence,
-        guidance: {
-          message: guidanceMessage,
-          actionSteps,
-        },
-        isStaleBannerRequired: overallStaleBanner,
-      },
-      categories: categoryReports,
+      message:
+        'All your data is successfully synchronized. AI coaching is optimal.',
+      actionSteps: [],
     };
   }
 
