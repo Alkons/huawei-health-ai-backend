@@ -18,9 +18,9 @@ import {
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { User } from '../../common/decorators/user.decorator';
-import { HuaweiAuthorizeDto } from './dto/huawei-authorize.dto.js';
-import { HuaweiDisconnectDto } from './dto/huawei-disconnect.dto.js';
-import { HuaweiUpdateConsentDto } from './dto/huawei-update-consent.dto.js';
+import { HuaweiAuthorizeDto } from './dto/huawei-authorize.dto';
+import { HuaweiDisconnectDto } from './dto/huawei-disconnect.dto';
+import { HuaweiUpdateConsentDto } from './dto/huawei-update-consent.dto';
 import { HuaweiService } from './huawei.service';
 
 @ApiTags('integrations')

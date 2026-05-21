@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Types } from 'mongoose';
 import { HuaweiService } from './huawei.service';
 import { HuaweiTokenCryptoService } from './huawei-token-crypto.service';
 
@@ -28,6 +29,7 @@ function createModelMock() {
     deleteOne: jest.fn(),
     findOneAndUpdate: jest.fn(),
     updateOne: jest.fn(),
+    bulkWrite: jest.fn(),
   };
 }
 
@@ -35,9 +37,10 @@ describe('HuaweiService', () => {
   const userId = '507f1f77bcf86cd799439011';
   const tokenCryptoService: Pick<
     HuaweiTokenCryptoService,
-    'encryptRefreshToken'
+    'encryptRefreshToken' | 'decryptRefreshToken'
   > = {
     encryptRefreshToken: jest.fn((t: string) => `enc:${t}`),
+    decryptRefreshToken: jest.fn((t: string) => t.replace('enc:', '')),
   };
 
   const configService: Pick<ConfigService, 'get'> = {
@@ -48,15 +51,35 @@ describe('HuaweiService', () => {
   const tokenModel = createModelMock();
   const connectionModel = createModelMock();
   const ledgerModel = createModelMock();
+  const clientService = {
+    getActivityDaily: jest.fn(),
+    getWorkouts: jest.fn(),
+    getSleep: jest.fn(),
+    getHeartSignals: jest.fn(),
+    getSpO2: jest.fn(),
+  };
+  const dailyActivityModel = createModelMock();
+  const workoutSessionModel = createModelMock();
+  const sleepSessionModel = createModelMock();
+  const heartSignalModel = createModelMock();
+  const spo2RecordModel = createModelMock();
+  const syncProgressModel = createModelMock();
 
   const createService = () =>
     new HuaweiService(
       configService as ConfigService,
       tokenCryptoService as HuaweiTokenCryptoService,
+      clientService as any,
       oauthStateModel as any,
       tokenModel as any,
       connectionModel as any,
       ledgerModel as any,
+      dailyActivityModel as any,
+      workoutSessionModel as any,
+      sleepSessionModel as any,
+      heartSignalModel as any,
+      spo2RecordModel as any,
+      syncProgressModel as any,
     );
 
   beforeEach(() => {
@@ -267,6 +290,366 @@ describe('HuaweiService', () => {
       expect(connectionModel.updateOne).toHaveBeenCalled();
       expect(tokenModel.deleteOne).toHaveBeenCalled();
       expect(ledgerModel.create).toHaveBeenCalled();
+    });
+  });
+
+  describe('getOrRefreshToken', () => {
+    it('should throw if token missing', async () => {
+      const service = createService();
+      tokenModel.findOne.mockResolvedValue(null);
+      await expect(service.getOrRefreshToken(userId)).rejects.toThrow(
+        new BadRequestException('User not connected or token missing'),
+      );
+    });
+
+    it('should return active token if not expired', async () => {
+      const service = createService();
+      const mockToken = {
+        accessToken: 'active-token',
+        accessTokenExpiresAt: new Date(Date.now() + 10 * 60 * 1000),
+        refreshTokenEncrypted: 'enc:refresh',
+      };
+      tokenModel.findOne.mockResolvedValue(mockToken);
+      const token = await service.getOrRefreshToken(userId);
+      expect(token).toBe('active-token');
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    });
+
+    it('should throw if client not configured', async () => {
+      const service = createService();
+      const mockToken = {
+        accessToken: 'expired-token',
+        accessTokenExpiresAt: new Date(Date.now() - 1000),
+        refreshTokenEncrypted: 'enc:refresh',
+      };
+      tokenModel.findOne.mockResolvedValue(mockToken);
+      (configService.get as jest.Mock).mockReturnValue({
+        huawei: { clientId: '', clientSecret: '' },
+      });
+      await expect(service.getOrRefreshToken(userId)).rejects.toThrow(
+        new BadRequestException('Huawei OAuth client is not configured'),
+      );
+    });
+
+    it('should refresh token if expired', async () => {
+      const service = createService();
+      const mockToken = {
+        _id: 'tokenId',
+        accessToken: 'expired-token',
+        accessTokenExpiresAt: new Date(Date.now() - 1000),
+        refreshTokenEncrypted: 'enc:refresh',
+      };
+      tokenModel.findOne.mockResolvedValue(mockToken);
+      (globalThis.fetch as jest.MockedFunction<typeof fetch>).mockResolvedValue(
+        {
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              access_token: 'new-at',
+              refresh_token: 'new-rt',
+              expires_in: 3600,
+            }),
+        } as any,
+      );
+      const token = await service.getOrRefreshToken(userId);
+      expect(token).toBe('new-at');
+      expect(tokenModel.updateOne).toHaveBeenCalled();
+    });
+
+    it('should throw if token refresh fails', async () => {
+      const service = createService();
+      const mockToken = {
+        accessToken: 'expired-token',
+        accessTokenExpiresAt: new Date(Date.now() - 1000),
+        refreshTokenEncrypted: 'enc:refresh',
+      };
+      tokenModel.findOne.mockResolvedValue(mockToken);
+      (globalThis.fetch as jest.MockedFunction<typeof fetch>).mockResolvedValue(
+        {
+          ok: false,
+        } as any,
+      );
+      await expect(service.getOrRefreshToken(userId)).rejects.toThrow(
+        new BadRequestException('Huawei token refresh failed'),
+      );
+    });
+  });
+
+  describe('syncCategory', () => {
+    const userIdObj = new Types.ObjectId(userId);
+
+    it('should fail with permissionNotGranted if connection missing', async () => {
+      const service = createService();
+      connectionModel.findOne.mockResolvedValue(null);
+      await service.syncCategory(userId, 'activity');
+      expect(syncProgressModel.findOneAndUpdate).toHaveBeenCalledWith(
+        { userId: userIdObj, category: 'activity' },
+        expect.objectContaining({
+          $set: expect.objectContaining({
+            status: 'failed',
+            reasonClass: 'permissionNotGranted',
+          }) as unknown,
+        }) as unknown,
+        { upsert: true },
+      );
+    });
+
+    it('should fail with permissionNotGranted if connection is not connected', async () => {
+      const service = createService();
+      connectionModel.findOne.mockResolvedValue({ status: 'disconnected' });
+      await service.syncCategory(userId, 'activity');
+      expect(syncProgressModel.findOneAndUpdate).toHaveBeenCalledWith(
+        { userId: userIdObj, category: 'activity' },
+        expect.objectContaining({
+          $set: expect.objectContaining({
+            status: 'failed',
+            reasonClass: 'permissionNotGranted',
+          }) as unknown,
+        }) as unknown,
+        { upsert: true },
+      );
+    });
+
+    it('should fail with permissionNotGranted if category is not granted or enabled', async () => {
+      const service = createService();
+      connectionModel.findOne.mockResolvedValue({
+        status: 'connected',
+        grantedCategories: [],
+        enabledCategories: ['activity'],
+      });
+      await service.syncCategory(userId, 'activity');
+      expect(syncProgressModel.findOneAndUpdate).toHaveBeenCalledWith(
+        { userId: userIdObj, category: 'activity' },
+        expect.objectContaining({
+          $set: expect.objectContaining({
+            status: 'failed',
+            reasonClass: 'permissionNotGranted',
+          }) as unknown,
+        }) as unknown,
+        { upsert: true },
+      );
+    });
+
+    it('should sync activity category', async () => {
+      const service = createService();
+      connectionModel.findOne.mockResolvedValue({
+        status: 'connected',
+        grantedCategories: ['activity'],
+        enabledCategories: ['activity'],
+      });
+      tokenModel.findOne.mockResolvedValue({
+        accessToken: 'active-token',
+        accessTokenExpiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      });
+      clientService.getActivityDaily.mockResolvedValue([
+        { date: '2026-05-20', steps: 1000, calories: 50, distance: 800 },
+      ]);
+
+      await service.syncCategory(userId, 'activity');
+
+      expect(syncProgressModel.findOneAndUpdate).toHaveBeenNthCalledWith(
+        1,
+        { userId: userIdObj, category: 'activity' },
+        expect.objectContaining({
+          $set: expect.objectContaining({ status: 'syncing' }) as unknown,
+        }) as unknown,
+        { upsert: true },
+      );
+      expect(clientService.getActivityDaily).toHaveBeenCalled();
+      expect(dailyActivityModel.bulkWrite).toHaveBeenCalled();
+      expect(syncProgressModel.findOneAndUpdate).toHaveBeenNthCalledWith(
+        2,
+        { userId: userIdObj, category: 'activity' },
+        expect.objectContaining({
+          $set: expect.objectContaining({
+            status: 'synced',
+            reasonClass: 'ok',
+          }) as unknown,
+        }) as unknown,
+        { upsert: true },
+      );
+    });
+
+    it('should sync workouts category', async () => {
+      const service = createService();
+      connectionModel.findOne.mockResolvedValue({
+        status: 'connected',
+        grantedCategories: ['workouts'],
+        enabledCategories: ['workouts'],
+      });
+      tokenModel.findOne.mockResolvedValue({
+        accessToken: 'active-token',
+        accessTokenExpiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      });
+      clientService.getWorkouts.mockResolvedValue([
+        { workoutId: 'w1', activityType: 'running', calories: 200 },
+      ]);
+
+      await service.syncCategory(userId, 'workouts');
+
+      expect(clientService.getWorkouts).toHaveBeenCalled();
+      expect(workoutSessionModel.bulkWrite).toHaveBeenCalled();
+      expect(syncProgressModel.findOneAndUpdate).toHaveBeenNthCalledWith(
+        2,
+        { userId: userIdObj, category: 'workouts' },
+        expect.objectContaining({
+          $set: expect.objectContaining({
+            status: 'synced',
+            reasonClass: 'ok',
+          }) as unknown,
+        }) as unknown,
+        { upsert: true },
+      );
+    });
+
+    it('should sync sleep category', async () => {
+      const service = createService();
+      connectionModel.findOne.mockResolvedValue({
+        status: 'connected',
+        grantedCategories: ['sleep'],
+        enabledCategories: ['sleep'],
+      });
+      tokenModel.findOne.mockResolvedValue({
+        accessToken: 'active-token',
+        accessTokenExpiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      });
+      clientService.getSleep.mockResolvedValue([
+        { sleepId: 's1', duration: 3600 },
+      ]);
+
+      await service.syncCategory(userId, 'sleep');
+
+      expect(clientService.getSleep).toHaveBeenCalled();
+      expect(sleepSessionModel.bulkWrite).toHaveBeenCalled();
+    });
+
+    it('should sync heartSignals category', async () => {
+      const service = createService();
+      connectionModel.findOne.mockResolvedValue({
+        status: 'connected',
+        grantedCategories: ['heartSignals'],
+        enabledCategories: ['heartSignals'],
+      });
+      tokenModel.findOne.mockResolvedValue({
+        accessToken: 'active-token',
+        accessTokenExpiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      });
+      clientService.getHeartSignals.mockResolvedValue([
+        { timestamp: new Date(), heartRate: 72 },
+      ]);
+
+      await service.syncCategory(userId, 'heartSignals');
+
+      expect(clientService.getHeartSignals).toHaveBeenCalled();
+      expect(heartSignalModel.bulkWrite).toHaveBeenCalled();
+    });
+
+    it('should sync spo2 category', async () => {
+      const service = createService();
+      connectionModel.findOne.mockResolvedValue({
+        status: 'connected',
+        grantedCategories: ['spo2'],
+        enabledCategories: ['spo2'],
+      });
+      tokenModel.findOne.mockResolvedValue({
+        accessToken: 'active-token',
+        accessTokenExpiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      });
+      clientService.getSpO2.mockResolvedValue([
+        { timestamp: new Date(), spo2: 0.98 },
+      ]);
+
+      await service.syncCategory(userId, 'spo2');
+
+      expect(clientService.getSpO2).toHaveBeenCalled();
+      expect(spo2RecordModel.bulkWrite).toHaveBeenCalled();
+    });
+
+    it('should handle category and handle errors', async () => {
+      const service = createService();
+      connectionModel.findOne.mockResolvedValue({
+        status: 'connected',
+        grantedCategories: ['activity'],
+        enabledCategories: ['activity'],
+      });
+      tokenModel.findOne.mockResolvedValue({
+        accessToken: 'active-token',
+        accessTokenExpiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      });
+      clientService.getActivityDaily.mockRejectedValue(new Error('API Error'));
+
+      await service.syncCategory(userId, 'activity');
+
+      expect(syncProgressModel.findOneAndUpdate).toHaveBeenNthCalledWith(
+        2,
+        { userId: userIdObj, category: 'activity' },
+        expect.objectContaining({
+          $set: expect.objectContaining({
+            status: 'failed',
+            reasonClass: 'notYetSynced',
+            explanation: 'API Error',
+          }) as unknown,
+        }) as unknown,
+        { upsert: true },
+      );
+    });
+  });
+
+  describe('syncAllEnabledCategories', () => {
+    it('should do nothing if connection is missing', async () => {
+      const service = createService();
+      connectionModel.findOne.mockResolvedValue(null);
+      await service.syncAllEnabledCategories(userId);
+      expect(connectionModel.updateOne).not.toHaveBeenCalled();
+    });
+
+    it('should sync all enabled categories and update connection status', async () => {
+      const service = createService();
+      connectionModel.findOne.mockResolvedValue({
+        status: 'connected',
+        enabledCategories: ['activity', 'workouts'],
+        grantedCategories: ['activity', 'workouts'],
+      });
+      tokenModel.findOne.mockResolvedValue({
+        accessToken: 'active-token',
+        accessTokenExpiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      });
+      clientService.getActivityDaily.mockResolvedValue([]);
+      clientService.getWorkouts.mockResolvedValue([]);
+
+      await service.syncAllEnabledCategories(userId);
+
+      expect(connectionModel.updateOne).toHaveBeenCalledWith(
+        { userId: new Types.ObjectId(userId) },
+        expect.objectContaining({
+          $set: expect.objectContaining({
+            dataFreshnessStatus: 'fresh',
+          }) as unknown,
+        }) as unknown,
+      );
+    });
+
+    it('should set connection status to stale if one fails', async () => {
+      const service = createService();
+      connectionModel.findOne.mockResolvedValue({
+        status: 'connected',
+        enabledCategories: ['activity'],
+        grantedCategories: ['activity'],
+      });
+      jest
+        .spyOn(service, 'syncCategory')
+        .mockRejectedValue(new Error('Sync fail'));
+
+      await service.syncAllEnabledCategories(userId);
+
+      expect(connectionModel.updateOne).toHaveBeenCalledWith(
+        { userId: new Types.ObjectId(userId) },
+        expect.objectContaining({
+          $set: expect.objectContaining({
+            dataFreshnessStatus: 'stale',
+          }) as unknown,
+        }) as unknown,
+      );
     });
   });
 });

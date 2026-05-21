@@ -194,6 +194,58 @@ paths:
         - accessToken: []
       summary: Disconnect Huawei integration locally
       tags: *a2
+  /v1/health-data/sync-status:
+    get:
+      operationId: HealthDataController_getSyncStatus
+      parameters: []
+      responses:
+        "200":
+          description: Returns granular status information per metric category.
+      security: &a3
+        - accessToken: []
+      summary: Get current Huawei synchronization progress
+      tags: &a4
+        - health-data
+  /v1/health-data/sync:
+    post:
+      operationId: HealthDataController_triggerSync
+      parameters: []
+      responses:
+        "202":
+          description: Sync request accepted and started in the background.
+      security: *a3
+      summary: Manually trigger background health data sync
+      tags: *a4
+  /v1/health-data/timeline:
+    get:
+      operationId: HealthDataController_getTimeline
+      parameters:
+        - name: from
+          required: true
+          in: query
+          schema:
+            type: string
+        - name: to
+          required: true
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Combined and sorted workouts, sleep, and daily summaries.
+      security: *a3
+      summary: Get chronological timeline of fitness activities
+      tags: *a4
+  /v1/health-data/dashboard:
+    get:
+      operationId: HealthDataController_getDashboard
+      parameters: []
+      responses:
+        "200":
+          description: Aggregated steps, calories, last sleep, latest heart rate, and SpO2.
+      security: *a3
+      summary: Get consolidated summary cards for key health metrics
+      tags: *a4
 info:
   title: NestJS Backend API
   description: REST API template with authentication, health checks, caching, and analytics

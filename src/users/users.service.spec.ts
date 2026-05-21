@@ -4,7 +4,10 @@ import { UsersService } from './users.service';
 import { User } from './schemas/user.schema';
 import { Model } from 'mongoose';
 import * as cryptoUtils from '../common/utils/crypto.utils';
-import { ConflictException } from '@nestjs/common';
+import {
+  ConflictException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 
 const mockUser = {
   _id: 'some-id',
@@ -124,6 +127,35 @@ describe('UsersService', () => {
 
       await expect(serviceConflict.create(createUserDto)).rejects.toThrow(
         ConflictException,
+      );
+    });
+
+    it('should throw InternalServerErrorException on generic database error', async () => {
+      const createUserDto = {
+        email: 'new@example.com',
+        password: 'password',
+        firstName: 'New',
+        lastName: 'User',
+      };
+
+      class MockUserModelError {
+        constructor(public data: any) {}
+        save = jest.fn().mockRejectedValue(new Error('Some DB error'));
+      }
+
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          UsersService,
+          {
+            provide: getModelToken(User.name),
+            useValue: MockUserModelError,
+          },
+        ],
+      }).compile();
+      const serviceError = module.get<UsersService>(UsersService);
+
+      await expect(serviceError.create(createUserDto)).rejects.toThrow(
+        InternalServerErrorException,
       );
     });
   });

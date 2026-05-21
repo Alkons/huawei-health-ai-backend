@@ -9,6 +9,7 @@ jest.mock('./auth/auth.module');
 jest.mock('./users/users.module');
 jest.mock('./health/health.module');
 jest.mock('./integrations/huawei/huawei.module');
+jest.mock('./health-data/health-data.module');
 
 describe('AppModule', () => {
   let module: TestingModule;

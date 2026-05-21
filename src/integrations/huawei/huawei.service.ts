@@ -10,19 +10,45 @@ import { Types } from 'mongoose';
 import type { Model } from 'mongoose';
 import { v4 as uuidv4 } from 'uuid';
 import { AppConfig } from '../../config/configuration';
-import type { HuaweiAuthorizeDto } from './dto/huawei-authorize.dto.js';
-import type { HuaweiDisconnectDto } from './dto/huawei-disconnect.dto.js';
-import type { HuaweiUpdateConsentDto } from './dto/huawei-update-consent.dto.js';
-import type { HuaweiConsentCategory } from './schemas/huawei-consent-category.js';
-import type { HuaweiConnectionDocument } from './schemas/huawei-connection.schema.js';
-import { HuaweiConnection } from './schemas/huawei-connection.schema.js';
-import type { HuaweiConsentLedgerEventDocument } from './schemas/huawei-consent-ledger-event.schema.js';
-import { HuaweiConsentLedgerEvent } from './schemas/huawei-consent-ledger-event.schema.js';
-import type { HuaweiOAuthStateDocument } from './schemas/huawei-oauth-state.schema.js';
-import { HuaweiOAuthState } from './schemas/huawei-oauth-state.schema.js';
-import type { HuaweiProviderTokenDocument } from './schemas/huawei-provider-token.schema.js';
-import { HuaweiProviderToken } from './schemas/huawei-provider-token.schema.js';
-import { HuaweiTokenCryptoService } from './huawei-token-crypto.service.js';
+import type { HuaweiAuthorizeDto } from './dto/huawei-authorize.dto';
+import type { HuaweiDisconnectDto } from './dto/huawei-disconnect.dto';
+import type { HuaweiUpdateConsentDto } from './dto/huawei-update-consent.dto';
+import type { HuaweiConsentCategory } from './schemas/huawei-consent-category';
+import type { HuaweiConnectionDocument } from './schemas/huawei-connection.schema';
+import { HuaweiConnection } from './schemas/huawei-connection.schema';
+import type { HuaweiConsentLedgerEventDocument } from './schemas/huawei-consent-ledger-event.schema';
+import { HuaweiConsentLedgerEvent } from './schemas/huawei-consent-ledger-event.schema';
+import type { HuaweiOAuthStateDocument } from './schemas/huawei-oauth-state.schema';
+import { HuaweiOAuthState } from './schemas/huawei-oauth-state.schema';
+import type { HuaweiProviderTokenDocument } from './schemas/huawei-provider-token.schema';
+import { HuaweiProviderToken } from './schemas/huawei-provider-token.schema';
+import { HuaweiTokenCryptoService } from './huawei-token-crypto.service';
+import { HuaweiClientService } from './huawei-client.service';
+import {
+  HuaweiDailyActivity,
+  HuaweiDailyActivityDocument,
+} from './schemas/huawei-daily-activity.schema';
+import {
+  HuaweiWorkoutSession,
+  HuaweiWorkoutSessionDocument,
+} from './schemas/huawei-workout-session.schema';
+import {
+  HuaweiSleepSession,
+  HuaweiSleepSessionDocument,
+} from './schemas/huawei-sleep-session.schema';
+import {
+  HuaweiHeartSignal,
+  HuaweiHeartSignalDocument,
+} from './schemas/huawei-heart-signal.schema';
+import {
+  HuaweiSpO2Record,
+  HuaweiSpO2RecordDocument,
+} from './schemas/huawei-spo2-record.schema';
+import {
+  HuaweiSyncProgress,
+  HuaweiSyncProgressDocument,
+  HuaweiSyncReasonClass,
+} from './schemas/huawei-sync-progress.schema';
 
 @Injectable()
 export class HuaweiService {
@@ -31,6 +57,7 @@ export class HuaweiService {
   constructor(
     private readonly configService: ConfigService,
     private readonly tokenCryptoService: HuaweiTokenCryptoService,
+    private readonly clientService: HuaweiClientService,
     @InjectModel(HuaweiOAuthState.name)
     private readonly oauthStateModel: Model<HuaweiOAuthStateDocument>,
     @InjectModel(HuaweiProviderToken.name)
@@ -39,6 +66,18 @@ export class HuaweiService {
     private readonly connectionModel: Model<HuaweiConnectionDocument>,
     @InjectModel(HuaweiConsentLedgerEvent.name)
     private readonly ledgerModel: Model<HuaweiConsentLedgerEventDocument>,
+    @InjectModel(HuaweiDailyActivity.name)
+    private readonly dailyActivityModel: Model<HuaweiDailyActivityDocument>,
+    @InjectModel(HuaweiWorkoutSession.name)
+    private readonly workoutSessionModel: Model<HuaweiWorkoutSessionDocument>,
+    @InjectModel(HuaweiSleepSession.name)
+    private readonly sleepSessionModel: Model<HuaweiSleepSessionDocument>,
+    @InjectModel(HuaweiHeartSignal.name)
+    private readonly heartSignalModel: Model<HuaweiHeartSignalDocument>,
+    @InjectModel(HuaweiSpO2Record.name)
+    private readonly spo2RecordModel: Model<HuaweiSpO2RecordDocument>,
+    @InjectModel(HuaweiSyncProgress.name)
+    private readonly syncProgressModel: Model<HuaweiSyncProgressDocument>,
   ) {}
 
   getConnectConfig(userId: string) {
@@ -488,6 +527,423 @@ export class HuaweiService {
       `Huawei disconnected for user ${userId} (correlationId=${correlationId}, deletionMode=${deletionMode})`,
     );
     return { disconnected: true, deletionMode };
+  }
+
+  async getOrRefreshToken(userId: string): Promise<string> {
+    const tokenDoc = await this.tokenModel.findOne({
+      userId: new Types.ObjectId(userId),
+      provider: 'huawei',
+    });
+    if (!tokenDoc) {
+      throw new BadRequestException('User not connected or token missing');
+    }
+
+    const isExpired =
+      tokenDoc.accessTokenExpiresAt.getTime() - Date.now() < 60 * 1000;
+    if (!isExpired) {
+      return tokenDoc.accessToken;
+    }
+
+    this.logger.log(`Refreshing Huawei OAuth token for user ${userId}`);
+    const appConfig = this.getAppConfig();
+    if (!appConfig.huawei.clientId || !appConfig.huawei.clientSecret) {
+      throw new BadRequestException('Huawei OAuth client is not configured');
+    }
+
+    const decryptedRefreshToken = this.tokenCryptoService.decryptRefreshToken(
+      tokenDoc.refreshTokenEncrypted,
+    );
+
+    const body = new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: decryptedRefreshToken,
+      client_id: appConfig.huawei.clientId,
+      client_secret: appConfig.huawei.clientSecret,
+    });
+
+    const response = await fetch(appConfig.huawei.oauthTokenUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    });
+
+    if (!response.ok) {
+      throw new BadRequestException('Huawei token refresh failed');
+    }
+
+    const json = (await response.json()) as {
+      access_token: string;
+      refresh_token?: string;
+      expires_in: number;
+    };
+
+    const newEncryptedRefreshToken = json.refresh_token
+      ? this.tokenCryptoService.encryptRefreshToken(json.refresh_token)
+      : tokenDoc.refreshTokenEncrypted;
+    const newExpiresAt = new Date(Date.now() + json.expires_in * 1000);
+
+    await this.tokenModel.updateOne(
+      { _id: tokenDoc._id },
+      {
+        $set: {
+          accessToken: json.access_token,
+          accessTokenExpiresAt: newExpiresAt,
+          refreshTokenEncrypted: newEncryptedRefreshToken,
+        },
+      },
+    );
+
+    return json.access_token;
+  }
+
+  async syncCategory(
+    userId: string,
+    category: HuaweiConsentCategory,
+  ): Promise<void> {
+    const userIdObj = new Types.ObjectId(userId);
+    const connection = await this.connectionModel.findOne({
+      userId: userIdObj,
+    });
+    if (!connection || connection.status !== 'connected') {
+      await this.syncProgressModel.findOneAndUpdate(
+        { userId: userIdObj, category },
+        {
+          $set: {
+            provider: 'huawei' as const,
+            status: 'failed',
+            reasonClass: 'permissionNotGranted',
+            explanation: 'User is not connected to Huawei Health.',
+          },
+        },
+        { upsert: true },
+      );
+      return;
+    }
+
+    const isGranted = connection.grantedCategories.includes(category);
+    const isEnabled = connection.enabledCategories.includes(category);
+    if (!isGranted || !isEnabled) {
+      await this.syncProgressModel.findOneAndUpdate(
+        { userId: userIdObj, category },
+        {
+          $set: {
+            provider: 'huawei' as const,
+            status: 'failed',
+            reasonClass: 'permissionNotGranted',
+            explanation: `Category ${category} is not enabled or granted.`,
+          },
+        },
+        { upsert: true },
+      );
+      return;
+    }
+
+    await this.syncProgressModel.findOneAndUpdate(
+      { userId: userIdObj, category },
+      {
+        $set: {
+          provider: 'huawei' as const,
+          status: 'syncing',
+          lastAttemptedAt: new Date(),
+        },
+      },
+      { upsert: true },
+    );
+
+    try {
+      const token = await this.getOrRefreshToken(userId);
+      const to = new Date();
+      let isEmpty = false;
+
+      switch (category) {
+        case 'activity':
+          isEmpty = await this.syncActivityCategory(userIdObj, token, to);
+          break;
+        case 'workouts':
+          isEmpty = await this.syncWorkoutsCategory(userIdObj, token, to);
+          break;
+        case 'sleep':
+          isEmpty = await this.syncSleepCategory(userIdObj, token, to);
+          break;
+        case 'heartSignals':
+          isEmpty = await this.syncHeartSignalsCategory(userIdObj, token, to);
+          break;
+        case 'spo2':
+          isEmpty = await this.syncSpO2Category(userIdObj, token, to);
+          break;
+        default:
+          isEmpty = true;
+          break;
+      }
+
+      await this.updateSyncSuccess(userIdObj, category, isEmpty);
+    } catch (err: unknown) {
+      this.logger.error(
+        `Sync failed for user ${userId} and category ${category}`,
+        err,
+      );
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const reasonClass = this.classifyError(err);
+      await this.syncProgressModel.findOneAndUpdate(
+        { userId: userIdObj, category },
+        {
+          $set: {
+            provider: 'huawei' as const,
+            status: 'failed',
+            reasonClass,
+            explanation: errMsg,
+          },
+        },
+        { upsert: true },
+      );
+    }
+  }
+
+  private async syncActivityCategory(
+    userIdObj: Types.ObjectId,
+    token: string,
+    to: Date,
+  ): Promise<boolean> {
+    const from = new Date(to);
+    from.setDate(to.getDate() - 3);
+    const raw = await this.clientService.getActivityDaily(token, from, to);
+    const operations = raw.map((item) => ({
+      updateOne: {
+        filter: { userId: userIdObj, date: item.date },
+        update: {
+          $set: {
+            provider: 'huawei' as const,
+            steps: item.steps,
+            calories: item.calories,
+            distance: item.distance,
+            intensityMinutes: item.intensityMinutes,
+            hoursActive: item.hoursActive,
+            lastSyncedAt: new Date(),
+          },
+          $push: { rawPayloads: { $each: [item], $slice: -10 } },
+        },
+        upsert: true,
+      },
+    }));
+    if (operations.length > 0) {
+      await this.dailyActivityModel.bulkWrite(operations);
+    }
+    return raw.length === 0;
+  }
+
+  private async syncWorkoutsCategory(
+    userIdObj: Types.ObjectId,
+    token: string,
+    to: Date,
+  ): Promise<boolean> {
+    const from = new Date(to);
+    from.setDate(to.getDate() - 7);
+    const raw = await this.clientService.getWorkouts(token, from, to);
+    const operations = raw.map((item) => ({
+      updateOne: {
+        filter: { userId: userIdObj, workoutId: item.workoutId },
+        update: {
+          $set: {
+            provider: 'huawei' as const,
+            activityType: item.activityType,
+            startTime: item.startTime,
+            endTime: item.endTime,
+            duration: item.duration,
+            calories: item.calories,
+            distance: item.distance,
+            avgHeartRate: item.avgHeartRate,
+            maxHeartRate: item.maxHeartRate,
+            rawPayload: item,
+          },
+        },
+        upsert: true,
+      },
+    }));
+    if (operations.length > 0) {
+      await this.workoutSessionModel.bulkWrite(operations);
+    }
+    return raw.length === 0;
+  }
+
+  private async syncSleepCategory(
+    userIdObj: Types.ObjectId,
+    token: string,
+    to: Date,
+  ): Promise<boolean> {
+    const from = new Date(to);
+    from.setDate(to.getDate() - 7);
+    const raw = await this.clientService.getSleep(token, from, to);
+    const operations = raw.map((item) => ({
+      updateOne: {
+        filter: { userId: userIdObj, sleepId: item.sleepId },
+        update: {
+          $set: {
+            provider: 'huawei' as const,
+            startTime: item.startTime,
+            endTime: item.endTime,
+            duration: item.duration,
+            deepSleepDuration: item.deepSleepDuration,
+            lightSleepDuration: item.lightSleepDuration,
+            remSleepDuration: item.remSleepDuration,
+            awakeDuration: item.awakeDuration,
+            rawPayload: item,
+          },
+        },
+        upsert: true,
+      },
+    }));
+    if (operations.length > 0) {
+      await this.sleepSessionModel.bulkWrite(operations);
+    }
+    return raw.length === 0;
+  }
+
+  private async syncHeartSignalsCategory(
+    userIdObj: Types.ObjectId,
+    token: string,
+    to: Date,
+  ): Promise<boolean> {
+    const from = new Date(to);
+    from.setDate(to.getDate() - 1);
+    const raw = await this.clientService.getHeartSignals(token, from, to);
+    const operations = raw.map((item) => ({
+      updateOne: {
+        filter: { userId: userIdObj, timestamp: item.timestamp },
+        update: {
+          $set: {
+            provider: 'huawei' as const,
+            heartRate: item.heartRate,
+            restingHeartRate: item.restingHeartRate,
+            hrv: item.hrv,
+          },
+        },
+        upsert: true,
+      },
+    }));
+    if (operations.length > 0) {
+      await this.heartSignalModel.bulkWrite(operations);
+    }
+    return raw.length === 0;
+  }
+
+  private async syncSpO2Category(
+    userIdObj: Types.ObjectId,
+    token: string,
+    to: Date,
+  ): Promise<boolean> {
+    const from = new Date(to);
+    from.setDate(to.getDate() - 1);
+    const raw = await this.clientService.getSpO2(token, from, to);
+    const operations = raw.map((item) => ({
+      updateOne: {
+        filter: { userId: userIdObj, timestamp: item.timestamp },
+        update: {
+          $set: {
+            provider: 'huawei' as const,
+            spo2: item.spo2,
+            isLowSpO2: item.isLowSpO2,
+          },
+        },
+        upsert: true,
+      },
+    }));
+    if (operations.length > 0) {
+      await this.spo2RecordModel.bulkWrite(operations);
+    }
+    return raw.length === 0;
+  }
+
+  async syncAllEnabledCategories(userId: string): Promise<void> {
+    this.assertUserId(userId);
+    const userIdObj = new Types.ObjectId(userId);
+    const connection = await this.connectionModel.findOne({
+      userId: userIdObj,
+    });
+    if (!connection || connection.status !== 'connected') {
+      return;
+    }
+
+    const categories = connection.enabledCategories;
+    const results = await Promise.allSettled(
+      categories.map((cat) => this.syncCategory(userId, cat)),
+    );
+
+    let hasFailure = false;
+    for (const res of results) {
+      if (res.status === 'rejected') {
+        hasFailure = true;
+      }
+    }
+
+    await this.connectionModel.updateOne(
+      { userId: userIdObj },
+      {
+        $set: {
+          lastSyncAt: new Date(),
+          dataFreshnessStatus: hasFailure ? 'stale' : 'fresh',
+          dataFreshnessMessage: hasFailure
+            ? 'Some categories failed to sync. Check sync status for details.'
+            : 'All data synchronized successfully.',
+        },
+      },
+    );
+  }
+
+  private async updateSyncSuccess(
+    userId: Types.ObjectId,
+    category: HuaweiConsentCategory,
+    isEmpty: boolean,
+  ): Promise<void> {
+    await this.syncProgressModel.findOneAndUpdate(
+      { userId, category },
+      {
+        $set: {
+          provider: 'huawei' as const,
+          status: 'synced',
+          reasonClass: isEmpty ? 'noDataForRange' : 'ok',
+          explanation: isEmpty
+            ? 'No new records found in this time range.'
+            : 'Synchronization succeeded.',
+          lastSuccessAt: new Date(),
+        },
+      },
+      { upsert: true },
+    );
+  }
+
+  private classifyError(err: unknown): HuaweiSyncReasonClass {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    const msg = errMsg.toLowerCase();
+    if (
+      msg.includes('403') ||
+      msg.includes('permission') ||
+      msg.includes('scope') ||
+      msg.includes('unauthorized')
+    ) {
+      return 'permissionNotGranted';
+    }
+    if (
+      msg.includes('hardware') ||
+      msg.includes('device') ||
+      msg.includes('unsupported')
+    ) {
+      return 'deviceUnsupported';
+    }
+    if (
+      msg.includes('region') ||
+      msg.includes('limit') ||
+      msg.includes('hms')
+    ) {
+      return 'regionLimitation';
+    }
+    if (
+      msg.includes('disabled') ||
+      msg.includes('inactive') ||
+      msg.includes('sync off')
+    ) {
+      return 'syncSettingsOff';
+    }
+    return 'notYetSynced';
   }
 
   private assertUserId(userId: string): void {
