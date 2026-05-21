@@ -4,12 +4,11 @@ import { HuaweiClientService } from './huawei-client.service';
 
 describe('HuaweiClientService', () => {
   let service: HuaweiClientService;
-  let configService: ConfigService;
   let fetchMock: jest.Mock;
 
   beforeEach(async () => {
     fetchMock = jest.fn();
-    global.fetch = fetchMock as any;
+    global.fetch = fetchMock;
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -36,7 +35,6 @@ describe('HuaweiClientService', () => {
     }).compile();
 
     service = module.get<HuaweiClientService>(HuaweiClientService);
-    configService = module.get<ConfigService>(ConfigService);
   });
 
   afterEach(() => {
@@ -93,18 +91,19 @@ describe('HuaweiClientService', () => {
     it('should fetch real daily activities successfully', async () => {
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({
-          activities: [
-            {
-              date: '2026-05-20',
-              steps: 5000,
-              calories: 250,
-              distance: 3000,
-              intensityMinutes: 20,
-              hoursActive: 8,
-            },
-          ],
-        }),
+        json: () =>
+          Promise.resolve({
+            activities: [
+              {
+                date: '2026-05-20',
+                steps: 5000,
+                calories: 250,
+                distance: 3000,
+                intensityMinutes: 20,
+                hoursActive: 8,
+              },
+            ],
+          }),
       });
 
       const from = new Date('2026-05-20');
@@ -138,21 +137,22 @@ describe('HuaweiClientService', () => {
     it('should fetch real workouts successfully', async () => {
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({
-          activityRecords: [
-            {
-              id: '123',
-              activityType: 'running',
-              startTime: '2026-05-20T10:00:00.000Z',
-              endTime: '2026-05-20T11:00:00.000Z',
-              duration: 3600,
-              calories: 500,
-              distance: 10000,
-              avgHeartRate: 145,
-              maxHeartRate: 175,
-            },
-          ],
-        }),
+        json: () =>
+          Promise.resolve({
+            activityRecords: [
+              {
+                id: '123',
+                activityType: 'running',
+                startTime: '2026-05-20T10:00:00.000Z',
+                endTime: '2026-05-20T11:00:00.000Z',
+                duration: 3600,
+                calories: 500,
+                distance: 10000,
+                avgHeartRate: 145,
+                maxHeartRate: 175,
+              },
+            ],
+          }),
       });
 
       const from = new Date('2026-05-20');
@@ -178,20 +178,21 @@ describe('HuaweiClientService', () => {
     it('should fetch real sleep successfully', async () => {
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({
-          healthRecords: [
-            {
-              id: 'sleep-123',
-              startTime: '2026-05-20T23:00:00.000Z',
-              endTime: '2026-05-21T07:00:00.000Z',
-              duration: 480,
-              deepSleepDuration: 120,
-              lightSleepDuration: 240,
-              remSleepDuration: 96,
-              awakeDuration: 24,
-            },
-          ],
-        }),
+        json: () =>
+          Promise.resolve({
+            healthRecords: [
+              {
+                id: 'sleep-123',
+                startTime: '2026-05-20T23:00:00.000Z',
+                endTime: '2026-05-21T07:00:00.000Z',
+                duration: 480,
+                deepSleepDuration: 120,
+                lightSleepDuration: 240,
+                remSleepDuration: 96,
+                awakeDuration: 24,
+              },
+            ],
+          }),
       });
 
       const from = new Date('2026-05-20');
@@ -215,16 +216,17 @@ describe('HuaweiClientService', () => {
     it('should fetch real heart signals successfully', async () => {
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({
-          heartRates: [
-            {
-              timestamp: '2026-05-20T12:00:00.000Z',
-              heartRate: 72,
-              restingHeartRate: 60,
-              hrv: 55,
-            },
-          ],
-        }),
+        json: () =>
+          Promise.resolve({
+            heartRates: [
+              {
+                timestamp: '2026-05-20T12:00:00.000Z',
+                heartRate: 72,
+                restingHeartRate: 60,
+                hrv: 55,
+              },
+            ],
+          }),
       });
 
       const from = new Date('2026-05-20');
@@ -250,15 +252,16 @@ describe('HuaweiClientService', () => {
     it('should fetch real SpO2 successfully', async () => {
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({
-          spo2Records: [
-            {
-              timestamp: '2026-05-20T12:00:00.000Z',
-              spo2: 98,
-              isLowSpO2: false,
-            },
-          ],
-        }),
+        json: () =>
+          Promise.resolve({
+            spo2Records: [
+              {
+                timestamp: '2026-05-20T12:00:00.000Z',
+                spo2: 98,
+                isLowSpO2: false,
+              },
+            ],
+          }),
       });
 
       const from = new Date('2026-05-20');

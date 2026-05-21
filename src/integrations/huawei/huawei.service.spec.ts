@@ -388,8 +388,8 @@ describe('HuaweiService', () => {
           $set: expect.objectContaining({
             status: 'failed',
             reasonClass: 'permissionNotGranted',
-          }),
-        }),
+          }) as unknown,
+        }) as unknown,
         { upsert: true },
       );
     });
@@ -404,8 +404,8 @@ describe('HuaweiService', () => {
           $set: expect.objectContaining({
             status: 'failed',
             reasonClass: 'permissionNotGranted',
-          }),
-        }),
+          }) as unknown,
+        }) as unknown,
         { upsert: true },
       );
     });
@@ -424,8 +424,8 @@ describe('HuaweiService', () => {
           $set: expect.objectContaining({
             status: 'failed',
             reasonClass: 'permissionNotGranted',
-          }),
-        }),
+          }) as unknown,
+        }) as unknown,
         { upsert: true },
       );
     });
@@ -451,8 +451,8 @@ describe('HuaweiService', () => {
         1,
         { userId: userIdObj, category: 'activity' },
         expect.objectContaining({
-          $set: expect.objectContaining({ status: 'syncing' }),
-        }),
+          $set: expect.objectContaining({ status: 'syncing' }) as unknown,
+        }) as unknown,
         { upsert: true },
       );
       expect(clientService.getActivityDaily).toHaveBeenCalled();
@@ -464,8 +464,8 @@ describe('HuaweiService', () => {
           $set: expect.objectContaining({
             status: 'synced',
             reasonClass: 'ok',
-          }),
-        }),
+          }) as unknown,
+        }) as unknown,
         { upsert: true },
       );
     });
@@ -496,8 +496,8 @@ describe('HuaweiService', () => {
           $set: expect.objectContaining({
             status: 'synced',
             reasonClass: 'ok',
-          }),
-        }),
+          }) as unknown,
+        }) as unknown,
         { upsert: true },
       );
     });
@@ -588,8 +588,8 @@ describe('HuaweiService', () => {
             status: 'failed',
             reasonClass: 'notYetSynced',
             explanation: 'API Error',
-          }),
-        }),
+          }) as unknown,
+        }) as unknown,
         { upsert: true },
       );
     });
@@ -624,8 +624,8 @@ describe('HuaweiService', () => {
         expect.objectContaining({
           $set: expect.objectContaining({
             dataFreshnessStatus: 'fresh',
-          }),
-        }),
+          }) as unknown,
+        }) as unknown,
       );
     });
 
@@ -647,8 +647,8 @@ describe('HuaweiService', () => {
         expect.objectContaining({
           $set: expect.objectContaining({
             dataFreshnessStatus: 'stale',
-          }),
-        }),
+          }) as unknown,
+        }) as unknown,
       );
     });
   });
