@@ -32,7 +32,7 @@ export class HuaweiOAuthState
 
   correlationId!: string;
 
-  @Prop({ required: true, index: true })
+  @Prop({ required: true })
   expiresAt!: Date;
 
   createdAt!: Date;
