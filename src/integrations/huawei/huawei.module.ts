@@ -47,6 +47,11 @@ import {
   HuaweiSyncProgress,
   HuaweiSyncProgressSchema,
 } from './schemas/huawei-sync-progress.schema';
+import { HuaweiEligibilityService } from './huawei-eligibility.service';
+import {
+  HuaweiAdvancedRecord,
+  HuaweiAdvancedRecordSchema,
+} from './schemas/huawei-advanced-record.schema';
 
 @Module({
   imports: [
@@ -66,6 +71,7 @@ import {
       { name: HuaweiHeartSignal.name, schema: HuaweiHeartSignalSchema },
       { name: HuaweiSpO2Record.name, schema: HuaweiSpO2RecordSchema },
       { name: HuaweiSyncProgress.name, schema: HuaweiSyncProgressSchema },
+      { name: HuaweiAdvancedRecord.name, schema: HuaweiAdvancedRecordSchema },
     ]),
   ],
   controllers: [HuaweiController],
@@ -74,7 +80,8 @@ import {
     HuaweiTokenCryptoService,
     HuaweiClientService,
     HuaweiSyncScheduler,
+    HuaweiEligibilityService,
   ],
-  exports: [HuaweiService, MongooseModule],
+  exports: [HuaweiService, HuaweiEligibilityService, MongooseModule],
 })
 export class HuaweiModule {}

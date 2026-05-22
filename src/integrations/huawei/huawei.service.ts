@@ -49,6 +49,11 @@ import {
   HuaweiSyncProgressDocument,
   HuaweiSyncReasonClass,
 } from './schemas/huawei-sync-progress.schema';
+import { HuaweiEligibilityService } from './huawei-eligibility.service';
+import {
+  HuaweiAdvancedRecord,
+  HuaweiAdvancedRecordDocument,
+} from './schemas/huawei-advanced-record.schema';
 
 @Injectable()
 export class HuaweiService {
@@ -78,6 +83,9 @@ export class HuaweiService {
     private readonly spo2RecordModel: Model<HuaweiSpO2RecordDocument>,
     @InjectModel(HuaweiSyncProgress.name)
     private readonly syncProgressModel: Model<HuaweiSyncProgressDocument>,
+    private readonly eligibilityService: HuaweiEligibilityService,
+    @InjectModel(HuaweiAdvancedRecord.name)
+    private readonly advancedRecordModel: Model<HuaweiAdvancedRecordDocument>,
   ) {}
 
   getConnectConfig(userId: string) {
@@ -671,6 +679,13 @@ export class HuaweiService {
         case 'spo2':
           isEmpty = await this.syncSpO2Category(userIdObj, token, to);
           break;
+        case 'selectedRecords':
+          isEmpty = await this.syncSelectedRecordsCategory(
+            userIdObj,
+            token,
+            to,
+          );
+          break;
         default:
           isEmpty = true;
           break;
@@ -1221,5 +1236,128 @@ export class HuaweiService {
     const payloadJson = Buffer.from(payloadPart, 'base64url').toString('utf8');
     const payload = JSON.parse(payloadJson) as { sub?: string };
     return payload.sub || '';
+  }
+
+  async getAdvancedEligibility(userId: string): Promise<any[]> {
+    this.assertUserId(userId);
+    const connection = await this.connectionModel
+      .findOne({ userId: new Types.ObjectId(userId) })
+      .lean();
+
+    if (!connection || connection.status !== 'connected') {
+      return this.eligibilityService.evaluateEligibility(null, []);
+    }
+
+    const token = await this.getOrRefreshToken(userId);
+    const registeredDataTypes =
+      await this.clientService.getRegisteredDataTypes(token);
+
+    return this.eligibilityService.evaluateEligibility(
+      connection,
+      registeredDataTypes,
+    );
+  }
+
+  async getAdvancedRecords(
+    userId: string,
+    recordType?: string,
+  ): Promise<any[]> {
+    this.assertUserId(userId);
+    const filter: Record<string, any> = { userId: new Types.ObjectId(userId) };
+    if (recordType) {
+      filter.recordType = recordType;
+    }
+    return this.advancedRecordModel.find(filter).sort({ timestamp: -1 }).lean();
+  }
+
+  private async syncSelectedRecordsCategory(
+    userIdObj: Types.ObjectId,
+    token: string,
+    to: Date,
+  ): Promise<boolean> {
+    const connection = await this.connectionModel
+      .findOne({ userId: userIdObj })
+      .lean();
+    if (!connection) return true;
+
+    // 1. Fetch real active data types
+    const registeredDataTypes =
+      await this.clientService.getRegisteredDataTypes(token);
+
+    // 2. Resolve eligible categories
+    const eligibility = this.eligibilityService.evaluateEligibility(
+      connection,
+      registeredDataTypes,
+    );
+    const eligibleRecords = eligibility.filter((e) => e.status === 'eligible');
+
+    if (eligibleRecords.length === 0) {
+      this.logger.log(
+        `No advanced record types eligible for sync for user ${userIdObj.toHexString()}`,
+      );
+      return true;
+    }
+
+    const from = new Date(to);
+    from.setDate(to.getDate() - 3); // 3-day sync window
+    let totalSynced = 0;
+
+    for (const record of eligibleRecords) {
+      try {
+        const records = await this.clientService.getAdvancedRecords(
+          token,
+          record.recordType,
+          record.requiredDataType,
+          from,
+          to,
+        );
+        totalSynced += records.length;
+
+        const operations = records.map((item) => ({
+          updateOne: {
+            filter: {
+              userId: userIdObj,
+              recordType: record.recordType,
+              timestamp: item.timestamp,
+            },
+            update: {
+              $set: {
+                data: item.data,
+                rawPayload: item,
+              },
+            },
+            upsert: true,
+          },
+        }));
+
+        if (operations.length > 0) {
+          await this.advancedRecordModel.bulkWrite(operations);
+        }
+      } catch (err) {
+        this.logger.error(
+          `Failed to sync advanced record type ${record.recordType}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+
+    // 3. Keep connection region updated dynamically from real profile response
+    try {
+      const profile = await this.clientService.getUserProfile(token);
+      if (profile.countryCode && profile.countryCode !== connection.region) {
+        await this.connectionModel.updateOne(
+          { userId: userIdObj },
+          { $set: { region: profile.countryCode } },
+        );
+      }
+    } catch (e) {
+      this.logger.warn(
+        'Failed to dynamically refresh connection country profile',
+        e,
+      );
+    }
+
+    return totalSynced === 0;
   }
 }

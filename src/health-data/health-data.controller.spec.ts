@@ -2,10 +2,12 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { HealthDataController } from './health-data.controller';
 import { HealthDataService } from './health-data.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { HuaweiService } from '../integrations/huawei/huawei.service';
 
 describe('HealthDataController', () => {
   let controller: HealthDataController;
   let service: HealthDataService;
+  let huaweiService: HuaweiService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -22,6 +24,13 @@ describe('HealthDataController', () => {
             getTrends: jest.fn(),
           },
         },
+        {
+          provide: HuaweiService,
+          useValue: {
+            getAdvancedEligibility: jest.fn(),
+            getAdvancedRecords: jest.fn(),
+          },
+        },
       ],
     })
       .overrideGuard(JwtAuthGuard)
@@ -30,6 +39,7 @@ describe('HealthDataController', () => {
 
     controller = module.get(HealthDataController);
     service = module.get(HealthDataService);
+    huaweiService = module.get(HuaweiService);
   });
 
   it('should be defined', () => {
@@ -142,6 +152,40 @@ describe('HealthDataController', () => {
       await expect(controller.getTrends(userId, '10')).rejects.toThrow(
         'Trend window must be 7, 14, or 30 days.',
       );
+    });
+  });
+
+  describe('getAdvancedEligibility', () => {
+    it('should call huaweiService.getAdvancedEligibility with userId', async () => {
+      const userId = 'user-123';
+      const mockResult = [{ recordType: 'sleepBreathing', status: 'eligible' }];
+      (huaweiService.getAdvancedEligibility as jest.Mock).mockResolvedValue(
+        mockResult,
+      );
+
+      const result = await controller.getAdvancedEligibility(userId);
+
+      expect(huaweiService.getAdvancedEligibility).toHaveBeenCalledWith(userId);
+      expect(result).toEqual(mockResult);
+    });
+  });
+
+  describe('getAdvancedRecords', () => {
+    it('should call huaweiService.getAdvancedRecords with userId and type', async () => {
+      const userId = 'user-123';
+      const type = 'sleepBreathing';
+      const mockResult = [{ recordType: 'sleepBreathing' }];
+      (huaweiService.getAdvancedRecords as jest.Mock).mockResolvedValue(
+        mockResult,
+      );
+
+      const result = await controller.getAdvancedRecords(userId, type);
+
+      expect(huaweiService.getAdvancedRecords).toHaveBeenCalledWith(
+        userId,
+        type,
+      );
+      expect(result).toEqual(mockResult);
     });
   });
 });

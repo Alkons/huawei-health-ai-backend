@@ -103,6 +103,41 @@ interface HuaweiSpO2Response {
   }>;
 }
 
+interface HuaweiUserProfileResponse {
+  gender?: string;
+  age?: number;
+  countryCode?: string;
+}
+
+interface HuaweiCollectorDataType {
+  name: string;
+}
+
+interface HuaweiCollector {
+  dataType?: HuaweiCollectorDataType;
+}
+
+interface HuaweiDataCollectorsResponse {
+  dataCollectors?: HuaweiCollector[];
+}
+
+interface HuaweiHealthRecord {
+  id: string;
+  startTime: string | number;
+  detailInfo?: Record<string, unknown>;
+  summaryInfo?: Record<string, unknown>;
+}
+
+interface HuaweiSamplingDataPoint {
+  startTime: string | number;
+  value?: Record<string, unknown>;
+}
+
+interface HuaweiAdvancedRecordsResponse {
+  healthRecords?: HuaweiHealthRecord[];
+  samplingDataPoints?: HuaweiSamplingDataPoint[];
+}
+
 @Injectable()
 export class HuaweiClientService {
   private readonly logger = new Logger(HuaweiClientService.name);
@@ -299,6 +334,115 @@ export class HuaweiClientService {
       }));
     } catch (err) {
       this.logger.error('Failed to fetch SpO2 from Huawei', err);
+      throw err;
+    }
+  }
+
+  /**
+   * Fetches real user profile details from Huawei cloud (age, gender, region)
+   */
+  async getUserProfile(
+    token: string,
+  ): Promise<{ gender?: string; age?: number; countryCode?: string }> {
+    try {
+      const response = await fetch(`${this.getBaseUrl()}/healthkit/v2/user`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      if (!response.ok) {
+        throw new Error(`Huawei User Profile API Error: ${response.status}`);
+      }
+      const data = (await response.json()) as HuaweiUserProfileResponse;
+      return {
+        gender: data.gender,
+        age: data.age,
+        countryCode: data.countryCode || 'RU', // Defaults to RU if empty
+      };
+    } catch (err) {
+      this.logger.error('Failed to fetch real user profile from Huawei', err);
+      throw err;
+    }
+  }
+
+  /**
+   * Retrieves all active data collectors registered under the user's Huawei account.
+   * This is used to dynamically extract active data streams and watch capabilities.
+   */
+  async getRegisteredDataTypes(token: string): Promise<string[]> {
+    try {
+      const response = await fetch(
+        `${this.getBaseUrl()}/healthkit/v2/dataCollectors`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+      if (!response.ok) {
+        throw new Error(`Huawei DataCollectors API Error: ${response.status}`);
+      }
+      const data = (await response.json()) as HuaweiDataCollectorsResponse;
+      const collectors = data.dataCollectors || [];
+      const dataTypes = collectors
+        .map((c) => c.dataType?.name)
+        .filter((name): name is string => typeof name === 'string');
+      return Array.from(new Set(dataTypes));
+    } catch (err) {
+      this.logger.error('Failed to fetch data collectors from Huawei', err);
+      throw err;
+    }
+  }
+
+  /**
+   * Queries real Health Records or Sampling Datasets from Huawei Cloud.
+   */
+  async getAdvancedRecords(
+    token: string,
+    recordType: string,
+    dataType: string,
+    from: Date,
+    to: Date,
+  ): Promise<
+    Array<{ id: string; timestamp: Date; data: Record<string, unknown> }>
+  > {
+    const isHealthRecord = dataType.includes('.record.');
+    const url = isHealthRecord
+      ? `${this.getBaseUrl()}/healthkit/v2/healthRecords?type=${dataType}&startTime=${from.toISOString()}&endTime=${to.toISOString()}`
+      : `${this.getBaseUrl()}/healthkit/v2/samplingDatasets/${dataType}?startTime=${from.toISOString()}&endTime=${to.toISOString()}`;
+
+    try {
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      if (!response.ok) {
+        throw new Error(`Huawei Advanced REST API Error: ${response.status}`);
+      }
+      const data = (await response.json()) as HuaweiAdvancedRecordsResponse;
+
+      if (isHealthRecord) {
+        return (data.healthRecords || []).map((rec) => ({
+          id: rec.id,
+          timestamp: new Date(rec.startTime),
+          data: rec.detailInfo || rec.summaryInfo || {},
+        }));
+      } else {
+        return (data.samplingDataPoints || []).map((point) => ({
+          id: `point_${point.startTime}`,
+          timestamp: new Date(point.startTime),
+          data: point.value || {},
+        }));
+      }
+    } catch (err) {
+      this.logger.error(
+        `Failed to fetch real advanced records for dataType ${dataType}`,
+        err,
+      );
       throw err;
     }
   }

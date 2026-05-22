@@ -17,13 +17,17 @@ import {
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { User } from '../common/decorators/user.decorator';
 import { HealthDataService } from './health-data.service';
+import { HuaweiService } from '../integrations/huawei/huawei.service';
 
 @ApiTags('health-data')
 @Controller('v1/health-data')
 @UseGuards(JwtAuthGuard)
 @ApiCookieAuth('accessToken')
 export class HealthDataController {
-  constructor(private readonly healthDataService: HealthDataService) {}
+  constructor(
+    private readonly healthDataService: HealthDataService,
+    private readonly huaweiService: HuaweiService,
+  ) {}
 
   @Get('sync-status')
   @HttpCode(HttpStatus.OK)
@@ -113,5 +117,33 @@ export class HealthDataController {
       throw new BadRequestException('Trend window must be 7, 14, or 30 days.');
     }
     return this.healthDataService.getTrends(userId, daysNum);
+  }
+
+  @Get('advanced-records/eligibility')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get advanced records eligibility checklist and catalog',
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      'List of record categories with status, reasons, and troubleshooting tips.',
+  })
+  async getAdvancedEligibility(@User() userId: string) {
+    return this.huaweiService.getAdvancedEligibility(userId);
+  }
+
+  @Get('advanced-records')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Get synchronized advanced health records' })
+  @ApiResponse({
+    status: 200,
+    description: 'Filtered list of advanced records sorted by timestamp.',
+  })
+  async getAdvancedRecords(
+    @User() userId: string,
+    @Query('type') type?: string,
+  ) {
+    return this.huaweiService.getAdvancedRecords(userId, type);
   }
 }

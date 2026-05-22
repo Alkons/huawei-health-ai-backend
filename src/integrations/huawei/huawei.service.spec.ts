@@ -25,6 +25,7 @@ function createAppConfig(overrides?: Partial<any>) {
 function createModelMock() {
   return {
     create: jest.fn(),
+    find: jest.fn(),
     findOne: jest.fn(),
     deleteOne: jest.fn(),
     findOneAndUpdate: jest.fn(),
@@ -64,6 +65,10 @@ describe('HuaweiService', () => {
   const heartSignalModel = createModelMock();
   const spo2RecordModel = createModelMock();
   const syncProgressModel = createModelMock();
+  const eligibilityService = {
+    evaluateEligibility: jest.fn(),
+  };
+  const advancedRecordModel = createModelMock();
 
   const createService = () =>
     new HuaweiService(
@@ -80,6 +85,8 @@ describe('HuaweiService', () => {
       heartSignalModel as any,
       spo2RecordModel as any,
       syncProgressModel as any,
+      eligibilityService as any,
+      advancedRecordModel as any,
     );
 
   beforeEach(() => {
@@ -650,6 +657,117 @@ describe('HuaweiService', () => {
           }) as unknown,
         }) as unknown,
       );
+    });
+  });
+
+  describe('advanced records support', () => {
+    it('should return evaluateEligibility with null when connection is missing', async () => {
+      const service = createService();
+      connectionModel.findOne.mockReturnValue({ lean: () => null });
+      eligibilityService.evaluateEligibility.mockReturnValue([
+        { recordType: 'sleepBreathing', status: 'actionRequired' },
+      ]);
+
+      const res = await service.getAdvancedEligibility(userId);
+      expect(res).toEqual([
+        { recordType: 'sleepBreathing', status: 'actionRequired' },
+      ]);
+      expect(eligibilityService.evaluateEligibility).toHaveBeenCalledWith(
+        null,
+        [],
+      );
+    });
+
+    it('should call evaluateEligibility with connection and data collectors on success', async () => {
+      const service = createService();
+      const mockConn = {
+        status: 'connected',
+        region: 'RU',
+        grantedScopes: ['HEALTHKIT_PULMONARY_READ'],
+      };
+      connectionModel.findOne.mockReturnValue({ lean: () => mockConn });
+      tokenModel.findOne.mockResolvedValue({
+        accessToken: 'active-token',
+        accessTokenExpiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      });
+      clientService.getRegisteredDataTypes = jest
+        .fn()
+        .mockResolvedValue(['com.huawei.health.record.sleep_breathing']);
+      eligibilityService.evaluateEligibility.mockReturnValue([
+        { recordType: 'sleepBreathing', status: 'eligible' },
+      ]);
+
+      const res = await service.getAdvancedEligibility(userId);
+      expect(res).toEqual([
+        { recordType: 'sleepBreathing', status: 'eligible' },
+      ]);
+      expect(eligibilityService.evaluateEligibility).toHaveBeenCalledWith(
+        mockConn,
+        ['com.huawei.health.record.sleep_breathing'],
+      );
+    });
+
+    it('should query advancedRecordModel for records', async () => {
+      const service = createService();
+      advancedRecordModel.find.mockReturnValue({
+        sort: () => ({ lean: () => [{ recordType: 'sleepBreathing' }] }),
+      });
+
+      const res = await service.getAdvancedRecords(userId, 'sleepBreathing');
+      expect(res).toEqual([{ recordType: 'sleepBreathing' }]);
+      expect(advancedRecordModel.find).toHaveBeenCalledWith({
+        userId: new Types.ObjectId(userId),
+        recordType: 'sleepBreathing',
+      });
+    });
+
+    it('should sync advanced records dynamically inside syncCategory selectedRecords', async () => {
+      const service = createService();
+      const mockConn = {
+        status: 'connected',
+        region: 'RU',
+        grantedScopes: ['HEALTHKIT_PULMONARY_READ'],
+      };
+      connectionModel.findOne.mockReturnValue({ lean: () => mockConn });
+      tokenModel.findOne.mockResolvedValue({
+        accessToken: 'active-token',
+        accessTokenExpiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      });
+      clientService.getRegisteredDataTypes = jest
+        .fn()
+        .mockResolvedValue(['com.huawei.health.record.sleep_breathing']);
+      clientService.getUserProfile = jest
+        .fn()
+        .mockResolvedValue({ countryCode: 'RU' });
+      eligibilityService.evaluateEligibility.mockReturnValue([
+        {
+          recordType: 'sleepBreathing',
+          requiredDataType: 'com.huawei.health.record.sleep_breathing',
+          status: 'eligible',
+        },
+      ]);
+      clientService.getAdvancedRecords = jest
+        .fn()
+        .mockResolvedValue([
+          { timestamp: new Date(), data: { breathRate: 16 } },
+        ]);
+
+      // Call syncSelectedRecordsCategory indirectly
+      await (
+        service as unknown as {
+          syncSelectedRecordsCategory: (
+            userId: Types.ObjectId,
+            token: string,
+            to: Date,
+          ) => Promise<boolean>;
+        }
+      ).syncSelectedRecordsCategory(
+        new Types.ObjectId(userId),
+        'active-token',
+        new Date(),
+      );
+      expect(clientService.getAdvancedRecords).toHaveBeenCalled();
+      expect(advancedRecordModel.bulkWrite).toHaveBeenCalled();
     });
   });
 });
