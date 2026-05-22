@@ -54,6 +54,17 @@ export interface MetricReliability {
   isStale: boolean;
 }
 
+export interface WeeklyActivitySummary {
+  totalSteps: number;
+  avgSteps: number;
+  totalCalories: number;
+  avgCalories: number;
+  totalDistance: number;
+  intensityMinutes: number;
+  hoursActive: number;
+  daysCount: number;
+}
+
 export interface DashboardSummary {
   activity?: {
     date: string;
@@ -62,6 +73,7 @@ export interface DashboardSummary {
     distance: number;
     intensityMinutes: number;
     hoursActive: number;
+    weekly?: WeeklyActivitySummary;
     reliability?: MetricReliability;
   };
   sleep?: {
@@ -86,6 +98,48 @@ export interface DashboardSummary {
     spo2: number;
     isLowSpO2?: boolean;
     reliability?: MetricReliability;
+  };
+  recentWorkouts?: {
+    id: string;
+    workoutId: string;
+    activityType: string;
+    startTime: Date;
+    endTime: Date;
+    duration: number; // seconds
+    calories: number; // kcal
+    distance?: number; // meters
+    avgHeartRate?: number; // bpm
+    maxHeartRate?: number; // bpm
+  }[];
+}
+
+export interface TrendPoint {
+  date: string; // YYYY-MM-DD
+  value: number | null;
+}
+
+export interface MetricTrend {
+  category: HuaweiConsentCategory;
+  displayName: string;
+  unit: string;
+  reliability?: MetricReliability;
+  points: TrendPoint[];
+  summary: {
+    total?: number;
+    average: number | null;
+    min: number | null;
+    max: number | null;
+  };
+}
+
+export interface TrendsReport {
+  days: number;
+  trends: {
+    steps?: MetricTrend;
+    calories?: MetricTrend;
+    sleep?: MetricTrend;
+    restingHeartRate?: MetricTrend;
+    spo2?: MetricTrend;
   };
 }
 
@@ -634,30 +688,72 @@ export class HealthDataService {
       .findOne({ userId: userIdObj })
       .lean();
 
-    const [latestActivity, latestSleep, latestHeart, latestSpO2] =
-      await Promise.all([
-        this.dailyActivityModel
-          .findOne({ userId: userIdObj })
-          .sort({ date: -1 })
-          .lean(),
-        this.sleepSessionModel
-          .findOne({ userId: userIdObj })
-          .sort({ startTime: -1 })
-          .lean(),
-        this.heartSignalModel
-          .findOne({ userId: userIdObj })
-          .sort({ timestamp: -1 })
-          .lean(),
-        this.spo2RecordModel
-          .findOne({ userId: userIdObj })
-          .sort({ timestamp: -1 })
-          .lean(),
-      ]);
+    const [
+      latestActivity,
+      latestSleep,
+      latestHeart,
+      latestSpO2,
+      weeklyActivities,
+      recentWorkouts,
+    ] = await Promise.all([
+      this.dailyActivityModel
+        .findOne({ userId: userIdObj })
+        .sort({ date: -1 })
+        .lean(),
+      this.sleepSessionModel
+        .findOne({ userId: userIdObj })
+        .sort({ startTime: -1 })
+        .lean(),
+      this.heartSignalModel
+        .findOne({ userId: userIdObj })
+        .sort({ timestamp: -1 })
+        .lean(),
+      this.spo2RecordModel
+        .findOne({ userId: userIdObj })
+        .sort({ timestamp: -1 })
+        .lean(),
+      this.dailyActivityModel
+        .find({ userId: userIdObj })
+        .sort({ date: -1 })
+        .limit(7)
+        .lean(),
+      this.workoutSessionModel
+        .find({ userId: userIdObj })
+        .sort({ startTime: -1 })
+        .limit(5)
+        .lean(),
+    ]);
 
     const result: DashboardSummary = {};
 
     const isCategoryEnabled = (cat: HuaweiConsentCategory) =>
       connection?.enabledCategories?.includes(cat) ?? false;
+
+    let weeklySummary: WeeklyActivitySummary | undefined = undefined;
+    if (weeklyActivities.length > 0) {
+      let totalSteps = 0;
+      let totalCalories = 0;
+      let totalDistance = 0;
+      let totalIntensityMinutes = 0;
+      let totalHoursActive = 0;
+      for (const act of weeklyActivities) {
+        totalSteps += act.steps;
+        totalCalories += act.calories;
+        totalDistance += act.distance;
+        totalIntensityMinutes += act.intensityMinutes;
+        totalHoursActive += act.hoursActive;
+      }
+      weeklySummary = {
+        totalSteps,
+        avgSteps: Math.round(totalSteps / weeklyActivities.length),
+        totalCalories,
+        avgCalories: Math.round(totalCalories / weeklyActivities.length),
+        totalDistance,
+        intensityMinutes: totalIntensityMinutes,
+        hoursActive: totalHoursActive,
+        daysCount: weeklyActivities.length,
+      };
+    }
 
     // 1. Activity Card
     const activityReliability = await this.getMetricReliability(
@@ -674,6 +770,7 @@ export class HealthDataService {
         distance: latestActivity.distance,
         intensityMinutes: latestActivity.intensityMinutes,
         hoursActive: latestActivity.hoursActive,
+        weekly: weeklySummary,
         reliability: activityReliability,
       };
     } else if (isCategoryEnabled('activity')) {
@@ -684,6 +781,7 @@ export class HealthDataService {
         distance: 0,
         intensityMinutes: 0,
         hoursActive: 0,
+        weekly: weeklySummary,
         reliability: activityReliability,
       };
     }
@@ -760,6 +858,323 @@ export class HealthDataService {
       };
     }
 
+    // 5. Recent Workouts
+    if (recentWorkouts.length > 0) {
+      result.recentWorkouts = recentWorkouts.map((w) => ({
+        id: w._id.toString(),
+        workoutId: w.workoutId,
+        activityType: w.activityType,
+        startTime: w.startTime,
+        endTime: w.endTime,
+        duration: w.duration,
+        calories: w.calories,
+        distance: w.distance,
+        avgHeartRate: w.avgHeartRate,
+        maxHeartRate: w.maxHeartRate,
+      }));
+    } else {
+      result.recentWorkouts = [];
+    }
+
     return result;
+  }
+
+  /**
+   * Retrieves historical trend graphs (7/14/30 days) with reliability reports.
+   */
+  async getTrends(userId: string, days = 7): Promise<TrendsReport> {
+    this.logger.log(`Fetching ${days}-day trends for user ${userId}`);
+    const userIdObj = new Types.ObjectId(userId);
+    const now = new Date();
+
+    const connection = await this.connectionModel
+      .findOne({ userId: userIdObj })
+      .lean();
+
+    // 1. Generate grid of dates YYYY-MM-DD from today-days+1 to today (in UTC/ISO representation)
+    const dates: string[] = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+      dates.push(d.toISOString().split('T')[0]);
+    }
+
+    const startStr = dates[0];
+    const endStr = dates.at(-1)!;
+    const startDate = new Date(startStr + 'T00:00:00Z');
+    const endDate = now;
+
+    // 2. Fetch all raw metric lists in parallel for the time range
+    const [activities, sleepSessions, heartSignals, spo2Records] =
+      await Promise.all([
+        this.dailyActivityModel
+          .find({ userId: userIdObj, date: { $gte: startStr, $lte: endStr } })
+          .lean(),
+        this.sleepSessionModel
+          .find({
+            userId: userIdObj,
+            startTime: { $gte: startDate, $lte: endDate },
+          })
+          .lean(),
+        this.heartSignalModel
+          .find({
+            userId: userIdObj,
+            timestamp: { $gte: startDate, $lte: endDate },
+          })
+          .lean(),
+        this.spo2RecordModel
+          .find({
+            userId: userIdObj,
+            timestamp: { $gte: startDate, $lte: endDate },
+          })
+          .lean(),
+      ]);
+
+    // 3. Resolve metric-level reliability
+    const activityReliability = await this.getMetricReliability(
+      userIdObj,
+      'activity',
+      connection,
+      activities.at(-1)?.lastSyncedAt,
+    );
+    const sleepReliability = await this.getMetricReliability(
+      userIdObj,
+      'sleep',
+      connection,
+      sleepSessions.at(-1)?.endTime,
+    );
+    const heartReliability = await this.getMetricReliability(
+      userIdObj,
+      'heartSignals',
+      connection,
+      heartSignals.at(-1)?.timestamp,
+    );
+    const spo2Reliability = await this.getMetricReliability(
+      userIdObj,
+      'spo2',
+      connection,
+      spo2Records.at(-1)?.timestamp,
+    );
+
+    const isCategoryEnabled = (cat: HuaweiConsentCategory) =>
+      connection?.enabledCategories?.includes(cat) ?? false;
+
+    const activityTrends = this.buildActivityTrends(
+      dates,
+      activities,
+      isCategoryEnabled('activity'),
+      activityReliability,
+    );
+
+    const sleepTrend = this.buildSleepTrend(
+      dates,
+      sleepSessions,
+      isCategoryEnabled('sleep'),
+      sleepReliability,
+    );
+
+    const restingHeartRateTrend = this.buildHeartRateTrend(
+      dates,
+      heartSignals,
+      isCategoryEnabled('heartSignals'),
+      heartReliability,
+    );
+
+    const spo2Trend = this.buildSpO2Trend(
+      dates,
+      spo2Records,
+      isCategoryEnabled('spo2'),
+      spo2Reliability,
+    );
+
+    return {
+      days,
+      trends: {
+        steps: activityTrends.steps,
+        calories: activityTrends.calories,
+        sleep: sleepTrend,
+        restingHeartRate: restingHeartRateTrend,
+        spo2: spo2Trend,
+      },
+    };
+  }
+
+  private calculateTrendSummary(
+    points: TrendPoint[],
+    isAccumulative = false,
+  ): MetricTrend['summary'] {
+    const nonNullValues = points
+      .map((p) => p.value)
+      .filter((v): v is number => v !== null);
+
+    if (nonNullValues.length === 0) {
+      return {
+        total: isAccumulative ? 0 : undefined,
+        average: null,
+        min: null,
+        max: null,
+      };
+    }
+
+    const totalVal = nonNullValues.reduce((sum, v) => sum + v, 0);
+    return {
+      total: isAccumulative ? totalVal : undefined,
+      average: Math.round((totalVal / nonNullValues.length) * 10) / 10,
+      min: Math.min(...nonNullValues),
+      max: Math.max(...nonNullValues),
+    };
+  }
+
+  private buildActivityTrends(
+    dates: string[],
+    activities: HuaweiDailyActivity[],
+    hasActivity: boolean,
+    reliability?: MetricReliability,
+  ): { steps: MetricTrend; calories: MetricTrend } {
+    const stepPoints: TrendPoint[] = [];
+    const caloriePoints: TrendPoint[] = [];
+
+    for (const dateStr of dates) {
+      const act = activities.find((a) => a.date === dateStr);
+      const stepsVal = hasActivity && act ? act.steps : null;
+      const calVal = hasActivity && act ? act.calories : null;
+      stepPoints.push({
+        date: dateStr,
+        value: stepsVal,
+      });
+      caloriePoints.push({
+        date: dateStr,
+        value: calVal,
+      });
+    }
+
+    return {
+      steps: {
+        category: 'activity',
+        displayName: 'Steps',
+        unit: 'steps',
+        reliability,
+        points: stepPoints,
+        summary: this.calculateTrendSummary(stepPoints, true),
+      },
+      calories: {
+        category: 'activity',
+        displayName: 'Active Calories',
+        unit: 'kcal',
+        reliability,
+        points: caloriePoints,
+        summary: this.calculateTrendSummary(caloriePoints, true),
+      },
+    };
+  }
+
+  private buildSleepTrend(
+    dates: string[],
+    sleepSessions: HuaweiSleepSession[],
+    hasSleep: boolean,
+    reliability?: MetricReliability,
+  ): MetricTrend {
+    const sleepPoints: TrendPoint[] = [];
+
+    for (const dateStr of dates) {
+      if (!hasSleep) {
+        sleepPoints.push({ date: dateStr, value: null });
+        continue;
+      }
+      const daySleeps = sleepSessions.filter((s) => {
+        const localDate = s.startTime.toISOString().split('T')[0];
+        return localDate === dateStr;
+      });
+      if (daySleeps.length > 0) {
+        const totalDuration = daySleeps.reduce((sum, s) => sum + s.duration, 0);
+        sleepPoints.push({ date: dateStr, value: totalDuration });
+      } else {
+        sleepPoints.push({ date: dateStr, value: null });
+      }
+    }
+
+    return {
+      category: 'sleep',
+      displayName: 'Sleep Duration',
+      unit: 'minutes',
+      reliability,
+      points: sleepPoints,
+      summary: this.calculateTrendSummary(sleepPoints, false),
+    };
+  }
+
+  private buildHeartRateTrend(
+    dates: string[],
+    heartSignals: HuaweiHeartSignal[],
+    hasHeart: boolean,
+    reliability?: MetricReliability,
+  ): MetricTrend {
+    const hrPoints: TrendPoint[] = [];
+
+    for (const dateStr of dates) {
+      if (!hasHeart) {
+        hrPoints.push({ date: dateStr, value: null });
+        continue;
+      }
+      const daySignals = heartSignals.filter((h) => {
+        const localDate = h.timestamp.toISOString().split('T')[0];
+        return localDate === dateStr && h.restingHeartRate !== undefined;
+      });
+      if (daySignals.length > 0) {
+        const avgResting =
+          daySignals.reduce((sum, h) => sum + h.restingHeartRate!, 0) /
+          daySignals.length;
+        hrPoints.push({ date: dateStr, value: Math.round(avgResting) });
+      } else {
+        hrPoints.push({ date: dateStr, value: null });
+      }
+    }
+
+    return {
+      category: 'heartSignals',
+      displayName: 'Resting Heart Rate',
+      unit: 'bpm',
+      reliability,
+      points: hrPoints,
+      summary: this.calculateTrendSummary(hrPoints, false),
+    };
+  }
+
+  private buildSpO2Trend(
+    dates: string[],
+    spo2Records: HuaweiSpO2Record[],
+    hasSpO2: boolean,
+    reliability?: MetricReliability,
+  ): MetricTrend {
+    const spo2Points: TrendPoint[] = [];
+
+    for (const dateStr of dates) {
+      if (!hasSpO2) {
+        spo2Points.push({ date: dateStr, value: null });
+        continue;
+      }
+      const dayRecords = spo2Records.filter((s) => {
+        const localDate = s.timestamp.toISOString().split('T')[0];
+        return localDate === dateStr;
+      });
+      if (dayRecords.length > 0) {
+        const avgSpO2 =
+          dayRecords.reduce((sum, s) => sum + s.spo2, 0) / dayRecords.length;
+        spo2Points.push({
+          date: dateStr,
+          value: Math.round(avgSpO2 * 10) / 10,
+        });
+      } else {
+        spo2Points.push({ date: dateStr, value: null });
+      }
+    }
+
+    return {
+      category: 'spo2',
+      displayName: 'SpO2',
+      unit: '%',
+      reliability,
+      points: spo2Points,
+      summary: this.calculateTrendSummary(spo2Points, false),
+    };
   }
 }

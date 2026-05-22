@@ -37,11 +37,13 @@ describe('HealthDataService', () => {
     lean: jest.Mock;
   };
   let heartSignalModel: {
+    find: jest.Mock;
     findOne: jest.Mock;
     sort: jest.Mock;
     lean: jest.Mock;
   };
   let spo2RecordModel: {
+    find: jest.Mock;
     findOne: jest.Mock;
     sort: jest.Mock;
     lean: jest.Mock;
@@ -62,11 +64,14 @@ describe('HealthDataService', () => {
       find: jest.fn().mockReturnThis(),
       findOne: jest.fn().mockReturnThis(),
       sort: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
       lean: jest.fn(),
     };
 
     workoutSessionModel = {
       find: jest.fn().mockReturnThis(),
+      sort: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
       lean: jest.fn(),
     };
 
@@ -78,12 +83,14 @@ describe('HealthDataService', () => {
     };
 
     heartSignalModel = {
+      find: jest.fn().mockReturnThis(),
       findOne: jest.fn().mockReturnThis(),
       sort: jest.fn().mockReturnThis(),
       lean: jest.fn(),
     };
 
     spo2RecordModel = {
+      find: jest.fn().mockReturnThis(),
       findOne: jest.fn().mockReturnThis(),
       sort: jest.fn().mockReturnThis(),
       lean: jest.fn(),
@@ -246,11 +253,15 @@ describe('HealthDataService', () => {
   });
 
   describe('getDashboard', () => {
-    it('should return latest activity, sleep, heart rate, and spo2 values', async () => {
+    it('should return latest activity, sleep, heart rate, spo2 values, weekly activity averages and recent workouts list', async () => {
       const userId = new Types.ObjectId().toString();
       const mockActivity = {
         date: '2026-05-20',
         steps: 8000,
+        calories: 300,
+        distance: 5000,
+        intensityMinutes: 45,
+        hoursActive: 10,
         lastSyncedAt: new Date(),
       };
       const mockSleep = {
@@ -261,15 +272,48 @@ describe('HealthDataService', () => {
       const mockHeart = { timestamp: new Date(), heartRate: 72 };
       const mockSpO2 = { timestamp: new Date(), spo2: 98 };
 
+      const mockWorkouts = [
+        {
+          _id: new Types.ObjectId(),
+          workoutId: 'w1',
+          activityType: 'running',
+          startTime: new Date(),
+          endTime: new Date(),
+          duration: 1800,
+          calories: 300,
+        },
+      ];
+
       connectionModel.lean.mockResolvedValue({
         status: 'connected',
         enabledCategories: ['activity', 'sleep', 'heartSignals', 'spo2'],
       });
 
-      dailyActivityModel.lean.mockResolvedValue(mockActivity);
+      // To handle parallel mock resolution of find and findOne on dailyActivityModel
+      const dailyActivityFindOneMock = {
+        sort: jest.fn().mockReturnThis(),
+        lean: jest.fn().mockResolvedValue(mockActivity),
+      };
+      const dailyActivityFindMock = {
+        sort: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
+        lean: jest.fn().mockResolvedValue([mockActivity]),
+      };
+
+      dailyActivityModel.findOne.mockReturnValue(dailyActivityFindOneMock);
+      dailyActivityModel.find.mockReturnValue(dailyActivityFindMock);
+
       sleepSessionModel.lean.mockResolvedValue(mockSleep);
       heartSignalModel.lean.mockResolvedValue(mockHeart);
       spo2RecordModel.lean.mockResolvedValue(mockSpO2);
+
+      // Workout mock
+      const workoutsFindMock = {
+        sort: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
+        lean: jest.fn().mockResolvedValue(mockWorkouts),
+      };
+      workoutSessionModel.find.mockReturnValue(workoutsFindMock);
 
       syncProgressModel.findOne.mockReturnThis();
       syncProgressModel.lean.mockResolvedValue(null);
@@ -277,9 +321,13 @@ describe('HealthDataService', () => {
       const dashboard = await service.getDashboard(userId);
 
       expect(dashboard.activity?.steps).toEqual(8000);
+      expect(dashboard.activity?.weekly?.totalSteps).toEqual(8000);
+      expect(dashboard.activity?.weekly?.avgSteps).toEqual(8000);
       expect(dashboard.sleep?.duration).toEqual(420);
       expect(dashboard.heartRate?.heartRate).toEqual(72);
       expect(dashboard.spo2?.spo2).toEqual(98);
+      expect(dashboard.recentWorkouts?.length).toEqual(1);
+      expect(dashboard.recentWorkouts?.[0].activityType).toEqual('running');
     });
   });
 
@@ -384,6 +432,114 @@ describe('HealthDataService', () => {
       expect(report.overall.guidance.actionSteps).toContain(
         'Go to Consent settings in the app',
       );
+    });
+  });
+
+  describe('getTrends', () => {
+    it('should aggregate steps, calories, sleep, heart rate, and spo2 for the last 7 days', async () => {
+      const userId = new Types.ObjectId().toString();
+
+      connectionModel.lean.mockResolvedValue({
+        status: 'connected',
+        enabledCategories: ['activity', 'sleep', 'heartSignals', 'spo2'],
+      });
+
+      const mockActivities = [
+        {
+          date: '2026-05-20',
+          steps: 10000,
+          calories: 400,
+          lastSyncedAt: new Date(),
+        },
+        {
+          date: '2026-05-21',
+          steps: 8000,
+          calories: 350,
+          lastSyncedAt: new Date(),
+        },
+      ];
+
+      const mockSleep = [
+        {
+          startTime: new Date('2026-05-20T22:00:00Z'),
+          endTime: new Date('2026-05-21T06:00:00Z'),
+          duration: 480,
+        },
+      ];
+
+      const mockHeart = [
+        {
+          timestamp: new Date('2026-05-20T08:00:00Z'),
+          heartRate: 70,
+          restingHeartRate: 60,
+        },
+        {
+          timestamp: new Date('2026-05-20T20:00:00Z'),
+          heartRate: 80,
+          restingHeartRate: 64,
+        },
+      ];
+
+      const mockSpO2 = [
+        { timestamp: new Date('2026-05-21T10:00:00Z'), spo2: 98.5 },
+      ];
+
+      dailyActivityModel.lean.mockResolvedValue(mockActivities);
+      sleepSessionModel.lean.mockResolvedValue(mockSleep);
+      heartSignalModel.lean.mockResolvedValue(mockHeart);
+      spo2RecordModel.lean.mockResolvedValue(mockSpO2);
+
+      syncProgressModel.findOne.mockReturnThis();
+      syncProgressModel.lean.mockResolvedValue(null);
+
+      const trends = await service.getTrends(userId, 7);
+
+      expect(trends.days).toBe(7);
+      expect(trends.trends.steps?.points.length).toBe(7);
+      expect(trends.trends.steps?.summary.total).toBe(18000);
+      expect(trends.trends.steps?.summary.average).toBe(9000);
+      expect(trends.trends.steps?.summary.min).toBe(8000);
+      expect(trends.trends.steps?.summary.max).toBe(10000);
+
+      const sleepPoints = trends.trends.sleep?.points || [];
+      const sleep20th = sleepPoints.find((p) => p.date === '2026-05-20');
+      expect(sleep20th?.value).toBe(480);
+
+      const hrPoints = trends.trends.restingHeartRate?.points || [];
+      const hr20th = hrPoints.find((p) => p.date === '2026-05-20');
+      expect(hr20th?.value).toBe(62);
+
+      const spo2Points = trends.trends.spo2?.points || [];
+      const spo221st = spo2Points.find((p) => p.date === '2026-05-21');
+      expect(spo221st?.value).toBe(98.5);
+    });
+
+    it('should return empty values with reliability indicators when permissions are missing', async () => {
+      const userId = new Types.ObjectId().toString();
+
+      connectionModel.lean.mockResolvedValue({
+        status: 'connected',
+        enabledCategories: ['activity'],
+      });
+
+      dailyActivityModel.lean.mockResolvedValue([]);
+      sleepSessionModel.lean.mockResolvedValue([]);
+      heartSignalModel.lean.mockResolvedValue([]);
+      spo2RecordModel.lean.mockResolvedValue([]);
+
+      syncProgressModel.findOne.mockReturnThis();
+      syncProgressModel.lean.mockResolvedValue({
+        status: 'failed',
+        reasonClass: 'permissionNotGranted',
+      });
+
+      const trends = await service.getTrends(userId, 7);
+
+      expect(trends.trends.steps?.points.every((p) => p.value === null)).toBe(
+        true,
+      );
+      expect(trends.trends.steps?.summary.average).toBeNull();
+      expect(trends.trends.steps?.reliability?.isStale).toBe(true);
     });
   });
 });
