@@ -49,6 +49,7 @@ export interface AppConfig {
     nonMedicalDisclaimerUrl: string;
     manageConsentUrl: string;
     retentionPolicySummary: string;
+    developerTier: 'individual' | 'enterprise';
   };
   ai: {
     providerApiKey: string;
@@ -122,6 +123,9 @@ export default registerAs(
       retentionPolicySummary:
         process.env.HUAWEI_RETENTION_POLICY_SUMMARY ||
         'If you disconnect, we stop syncing new data. Previously imported data may be retained according to our retention policy. You can request deletion of imported data from settings.',
+      developerTier:
+        (process.env.HUAWEI_DEVELOPER_TIER as 'individual' | 'enterprise') ||
+        'individual',
     },
     ai: {
       providerApiKey: process.env.AI_PROVIDER_API_KEY || '',

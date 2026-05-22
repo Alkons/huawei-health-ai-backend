@@ -57,6 +57,16 @@ export class HuaweiConnection {
   @Prop({ type: Types.ObjectId, required: false, index: true })
   tokenRefId?: Types.ObjectId;
 
+  @Prop({ required: false, default: 'RU' })
+  region?: string;
+
+  @Prop({ type: [Object], required: true, default: [] })
+  linkedDevices!: Array<{
+    deviceId: string;
+    modelName: string;
+    capabilities: string[];
+  }>;
+
   createdAt!: Date;
 
   updatedAt!: Date;
