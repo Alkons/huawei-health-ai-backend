@@ -115,7 +115,7 @@ export class HuaweiEligibilityService {
     devTier: string,
   ): EligibilityReport {
     // 1. Not connected state
-    if (!conn || conn.status !== 'connected') {
+    if (conn?.status !== 'connected') {
       return {
         ...meta,
         status: 'actionRequired',
