@@ -58,3 +58,4 @@ When the user’s data includes records that indicate potential abnormality (e.g
 
 - Use the OpenAI compatible AI provider.
 - Use structured output to generate the coaching feedback.
+

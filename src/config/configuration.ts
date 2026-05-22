@@ -50,6 +50,11 @@ export interface AppConfig {
     manageConsentUrl: string;
     retentionPolicySummary: string;
   };
+  ai: {
+    providerApiKey: string;
+    providerBaseUrl: string;
+    model: string;
+  };
 }
 
 export default registerAs(
@@ -117,6 +122,12 @@ export default registerAs(
       retentionPolicySummary:
         process.env.HUAWEI_RETENTION_POLICY_SUMMARY ||
         'If you disconnect, we stop syncing new data. Previously imported data may be retained according to our retention policy. You can request deletion of imported data from settings.',
+    },
+    ai: {
+      providerApiKey: process.env.AI_PROVIDER_API_KEY || '',
+      providerBaseUrl:
+        process.env.AI_PROVIDER_BASE_URL || 'https://api.openai.com/v1',
+      model: process.env.AI_MODEL || 'gpt-4o-mini',
     },
   }),
 );

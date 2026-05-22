@@ -9,6 +9,7 @@ import { UsersModule } from './users/users.module';
 import { HealthModule } from './health/health.module';
 import { HuaweiModule } from './integrations/huawei/huawei.module';
 import { HealthDataModule } from './health-data/health-data.module';
+import { CoachingModule } from './coaching/coaching.module';
 import configuration from './config/configuration';
 
 @Module({
@@ -26,6 +27,7 @@ import configuration from './config/configuration';
     HealthModule,
     HuaweiModule,
     HealthDataModule,
+    CoachingModule,
   ],
 })
 export class AppModule {}
