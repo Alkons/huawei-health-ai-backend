@@ -273,6 +273,68 @@ paths:
       security: *a3
       summary: Get historical trend graphs (7/14/30 days) with reliability reports
       tags: *a4
+  /v1/health-data/advanced-records/eligibility:
+    get:
+      operationId: HealthDataController_getAdvancedEligibility
+      parameters: []
+      responses:
+        "200":
+          description: List of record categories with status, reasons, and troubleshooting
+            tips.
+      security: *a3
+      summary: Get advanced records eligibility checklist and catalog
+      tags: *a4
+  /v1/health-data/advanced-records:
+    get:
+      operationId: HealthDataController_getAdvancedRecords
+      parameters:
+        - name: type
+          required: true
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Filtered list of advanced records sorted by timestamp.
+      security: *a3
+      summary: Get synchronized advanced health records
+      tags: *a4
+  /v1/coaching/generate:
+    post:
+      operationId: CoachingController_generateCoaching
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateCoachingDto"
+      responses:
+        "200":
+          description: ""
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoachingFeedbackResponseDto"
+      security: &a5
+        - bearer: []
+      summary: Generates daily AI coaching feedback grounded in synced metrics
+      tags: &a6
+        - coaching
+  /v1/coaching/latest:
+    get:
+      operationId: CoachingController_getLatestCoaching
+      parameters: []
+      responses:
+        "200":
+          description: Returns latest coaching session or null if none exists.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoachingFeedbackResponseDto"
+      security: *a5
+      summary: Fetches the latest cached coaching feedback for the user
+      tags: *a6
 info:
   title: NestJS Backend API
   description: REST API template with authentication, health checks, caching, and analytics
@@ -361,3 +423,63 @@ components:
     HuaweiDisconnectDto:
       type: object
       properties: {}
+    GenerateCoachingDto:
+      type: object
+      properties:
+        date:
+          type: string
+          example: 2026-05-22
+          description: Target date for the coaching session YYYY-MM-DD
+      required:
+        - date
+    CoachingFeedbackResponseDto:
+      type: object
+      properties:
+        summary:
+          type: string
+          description: Short summary of workouts and sleep
+        positiveSignals:
+          description: Things going well based on metrics
+          type: array
+          items:
+            type: string
+        concerns:
+          description: Key concerns or recovery warnings
+          type: array
+          items:
+            type: string
+        nextActions:
+          description: Actionable coaching steps
+          type: array
+          items:
+            type: string
+        followUpQuestions:
+          description: Clarifying questions about missing segments
+          type: array
+          items:
+            type: string
+        confidenceLevel:
+          type: string
+          enum:
+            - high
+            - medium
+            - low
+        hasSafetyAlert:
+          type: boolean
+          description: Indicator if a safety alert was active
+        disclaimer:
+          type: string
+          description: Compulsory wellness disclaimer
+        date:
+          type: string
+          description: Date the feedback corresponds to
+      required:
+        - summary
+        - positiveSignals
+        - concerns
+        - nextActions
+        - followUpQuestions
+        - confidenceLevel
+        - hasSafetyAlert
+        - disclaimer
+        - date
