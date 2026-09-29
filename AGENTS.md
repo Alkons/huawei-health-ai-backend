@@ -179,12 +179,6 @@ Before writing or refactoring non-trivial code, **read and follow the project ag
   - ctx for contexts
   - req, res, next for middleware function parameters
 
-## SonarQube quality gate
-
-- Project name is pl-backend in SonarQube.
-- When asked to improve code quality, check SonarQube quality gate using MCP-server integration and propose fixes for gate issues.
-- Check code duplications using SonarQube MCP-integration and improve code.
-
 ### Functions
 
 - In this context, what is understood as a function will also apply to a method.
